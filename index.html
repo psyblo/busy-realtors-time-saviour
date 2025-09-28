@@ -1,17 +1,16 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Busy Realtors Time Saver — Interactive Prompt Finder</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
   <style>
     :root{
       --bg:#0b0f17; --card: rgba(255,255,255,.06); --border: rgba(255,255,255,.12);
       --muted: rgba(255,255,255,.70); --muter: rgba(255,255,255,.55); --chip: rgba(255,255,255,.10);
-      --highlight1:#12D6DF; --highlight2:#7C9CFF;
     }
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:#0b0f17;color:#fff;font-family:"Inter",system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
@@ -20,15 +19,15 @@
     .bg-grad::before,.bg-grad::after{
       content:"";position:absolute;width:36rem;height:36rem;border-radius:50%;filter:blur(42px);opacity:.30
     }
-    .bg-grad::before{right:-8rem;top:-8rem;background:radial-gradient(closest-side, #12D6DF55, transparent)}
-    .bg-grad::after{left:-8rem;bottom:-8rem;background:radial-gradient(closest-side, #7C9CFF55, transparent)}
+    .bg-grad::before{right:-8rem;top:-8rem;background:radial-gradient(closest-side,#12D6DF55,transparent)}
+    .bg-grad::after{left:-8rem;bottom:-8rem;background:radial-gradient(closest-side,#7C9CFF55,transparent)}
     header{max-width:1200px;margin:0 auto;padding:28px 24px 12px}
     header h1{font-weight:800;line-height:1.1;margin:0}
     header .sub{color:var(--muted);font-size:14px;margin-top:6px}
     header .build{display:inline-block;margin-top:8px;font-size:11px;border:1px solid var(--border);background:rgba(255,255,255,.06);padding:4px 8px;border-radius:10px;color:var(--muter)}
     main{max-width:1200px;margin:0 auto;padding:16px 24px 48px}
-    .grid{display:grid;grid-template-columns: 340px 1fr;gap:16px}
-    @media (max-width: 980px){ .grid{grid-template-columns: 1fr} }
+    .grid{display:grid;grid-template-columns:340px 1fr;gap:16px}
+    @media (max-width: 980px){ .grid{grid-template-columns:1fr} }
     .card{border:1px solid var(--border);background:var(--card);backdrop-filter:blur(8px);border-radius:16px;padding:18px}
     .card h3{margin:0 0 8px 0}
     label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muter)}
@@ -45,11 +44,10 @@
     .btn.secondary{background:transparent;color:#fff;border-color:var(--border);box-shadow:none}
     .chips{display:flex;flex-wrap:wrap;gap:6px}
     .chip{padding:4px 8px;border-radius:999px;border:1px solid var(--border);background:var(--chip);font-size:11px;color:#ddd}
-    .muted{color:var(--muted)}
-    .muter{color:var(--muter)}
+    .muted{color:var(--muted)} .muter{color:var(--muter)}
     .prompts{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-    @media (max-width: 1200px){ .prompts{grid-template-columns:repeat(2,1fr)} }
-    @media (max-width: 700px){ .prompts{grid-template-columns:1fr} }
+    @media (max-width:1200px){ .prompts{grid-template-columns:repeat(2,1fr)} }
+    @media (max-width:700px){ .prompts{grid-template-columns:1fr} }
     .p-card{border:1px solid var(--border);background:var(--card);border-radius:16px;padding:16px}
     .p-head{display:flex;justify-content:space-between;gap:10px}
     .p-cat{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muter)}
@@ -71,7 +69,7 @@
   <header>
     <h1>Busy Realtors Time Saver</h1>
     <div class="sub">Interactive Prompt Finder • Fill → Apply → Copy</div>
-    <div class="build" id="build-tag">Build: vA-static</div>
+    <div class="build" id="build-tag">Build: vA-static2</div>
   </header>
 
   <main>
@@ -100,11 +98,19 @@
       <section>
         <div class="card search">
           <label for="search">Search</label>
-          <input id="search" placeholder="Search titles, bodies, keywords…" />
+          <input id="search" placeholder="Search titles, bodies, keywords…"/>
           <div class="muter" id="result-count" style="margin-top:6px">Results: 0</div>
         </div>
 
-        <div id="prompts" class="prompts"></div>
+        <!-- Raw preview (debug) -->
+        <div class="card" style="margin-top:10px">
+          <details>
+            <summary class="muter">Show first 3 raw prompts (debug)</summary>
+            <div id="raw3" class="muter" style="margin-top:8px;font-size:12px"></div>
+          </details>
+        </div>
+
+        <div id="prompts" class="prompts" style="margin-top:12px"></div>
         <div id="empty" class="card" style="display:none;margin-top:12px">
           <div class="muted">No prompts match your filters yet. Try clearing search.</div>
         </div>
@@ -124,19 +130,21 @@
 
 <script>
 (() => {
-  const BUILD = "vA-static";
+  const BUILD = "vA-static2";
   document.getElementById("build-tag").textContent = "Build: " + BUILD;
   document.getElementById("year").textContent = new Date().getFullYear();
 
-  // ---------- Utility ----------
-  const normalizeSpaces = (s) => s.replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
-  const toKey = (s) => normalizeSpaces(s.toLowerCase().replace(/[^\w\\s-]/g, ""));
+  // ---------- Utilities ----------
+  const normalizeSpaces = (s) => s.replace(/\\u00A0/g, " ").replace(/\\s+/g, " ").trim();
+  const toKey = (s) => normalizeSpaces(s.toLowerCase().replace(/[^\\w\\s-]/g, ""));
 
-  // Placeholder patterns: [], {}, {{}}
+  // Placeholder patterns: [], {}, {{}}, <>, ()
   const PH_PATTERNS = [
     { name:"brackets", re: /\\[(.+?)\\]/g },
     { name:"curly2",  re: /\\{\\{(.+?)\\}\\}/g },
     { name:"curly1",  re: /\\{(.+?)\\}/g },
+    { name:"angle",   re: /<(.+?)>/g },
+    { name:"paren",   re: /\\((.+?)\\)/g },
   ];
 
   const ALIASES = {
@@ -198,19 +206,19 @@
     for(const {re} of PH_PATTERNS){
       result = result.replace(re, (_, raw) => {
         const k = toKey(raw);
-        return expanded[k] ? expanded[k] : `[${raw}]`;
+        return expanded[k] ? expanded[k] : "["+raw+"]";
       });
     }
     // Second pass — "number of X" smart fallback
     result = result.replace(/\\[(number of .+?)\\]/gi, (_, raw) => {
       const k = toKey(raw);
       const m = /^number of (.+)$/.exec(k);
-      if(!m) return `[${raw}]`;
+      if(!m) return "["+raw+"]";
       const base = m[1];
       const singular = base.replace(/s\\b/, "");
       const tries = [base, singular, singular+"s"];
       for(const t of tries){ if(expanded[t]) return expanded[t]; }
-      return `[${raw}]`;
+      return "["+raw+"]";
     });
     return result;
   }
@@ -234,7 +242,7 @@
     }catch(e){ return false; }
   }
 
-  // ---------- State (simple object-based) ----------
+  // ---------- State ----------
   const state = {
     prompts: [],
     filtered: [],
@@ -260,6 +268,7 @@
   const appliedInfo = document.getElementById("applied-info");
   const diagEl = document.getElementById("diag");
   const searchEl = document.getElementById("search");
+  const raw3El = document.getElementById("raw3");
 
   // ---------- Render form fields ----------
   const FIELD_LIST = [
@@ -273,40 +282,59 @@
       const key = raw;
       const id = "f_"+key.replace(/\\s+/g,"_");
       const wrap = document.createElement("div");
-      wrap.innerHTML = `
-        <label for="${id}">[${raw}]</label>
-        <input id="${id}" value="${state.vars[key]||""}" />
-      `;
+      wrap.innerHTML = \`
+        <label for="\${id}">[\${raw}]</label>
+        <input id="\${id}" value="\${state.vars[key]||""}"/>
+      \`;
       formEl.appendChild(wrap);
       const input = wrap.querySelector("input");
       input.addEventListener("input", (e)=>{ state.vars[key] = e.target.value; });
     });
   }
 
-  // ---------- Load prompts ----------
+  // ---------- Load prompts (multi-path with banner) ----------
   async function loadPrompts(){
-    const candidates = ["./prompts.json","./data/prompts.json"];
-    for(const url of candidates){
-      try{
-        const r = await fetch(url, {cache:"no-store"});
-        if(r.ok){
+    const sources = [
+      // root-level (same folder as index.html)
+      {label:"./prompts.json", url:"./prompts.json"},
+      {label:"./data/prompts.json", url:"./data/prompts.json"},
+      // absolute from site root (Vercel)
+      {label:"/prompts.json", url:"/prompts.json"},
+      {label:"/data/prompts.json", url:"/data/prompts.json"},
+      // your current location
+      {label:"./src/data/prompts.json", url:"./src/data/prompts.json"},
+      {label:"/src/data/prompts.json",  url:"/src/data/prompts.json"},
+    ];
+    for (const s of sources) {
+      try {
+        const r = await fetch(s.url, { cache: "no-store" });
+        if (r.ok) {
           const json = await r.json();
-          if(Array.isArray(json)){
-            state.prompts = json;
+          if (Array.isArray(json)) {
+            // normalize: accept body | text | prompt
+            state.prompts = json.map((p, i) => ({
+              id: p.id ?? String(i),
+              title: p.title ?? \`Untitled #\${i+1}\`,
+              category: p.category ?? "Other",
+              keywords: Array.isArray(p.keywords) ? p.keywords : [],
+              body: p.body ?? p.text ?? p.prompt ?? ""
+            }));
+            resultCountEl.textContent = \`Loaded \${state.prompts.length} prompts from \${s.label}\`;
             return;
           }
         }
-      }catch(e){}
+      } catch (e) {}
     }
-    // fallback sample if file not found
+    // fallback if none found
     console.warn("prompts.json not found. Using fallback sample.");
     state.prompts = [
-      { id:"sample-1", title:"Classic Full Description", category:"Listings", keywords:["standard","mls"], body:"You are a pro copywriter. Write a description for a [property type] in [city] with [bedrooms] beds and [bathrooms] baths." },
+      { id:"sample-1", title:"Classic Full Description", category:"Listings", keywords:["standard","mls"], body:"Write a description for a [property type] in [city] with [bedrooms] beds and [bathrooms] baths." },
       { id:"sample-2", title:"Open House Email", category:"Email", keywords:["email","open-house"], body:"Email invite to [address] on [date] from [start time] to [end time]. Include [unique selling points]." }
     ];
+    resultCountEl.textContent = \`Loaded \${state.prompts.length} prompts from fallback sample (file not found)\`;
   }
 
-  // ---------- Filtering + rendering prompts ----------
+  // ---------- Helpers ----------
   function getBody(p){ return (p.body || p.text || p.prompt || ""); }
 
   function applyFilters(){
@@ -318,13 +346,21 @@
     });
   }
 
+  function escapeHtml(s){
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\\n/g,"<br/>");
+  }
+
   function renderPrompts(){
     promptsEl.innerHTML = "";
     const results = state.filtered;
-    resultCountEl.textContent = "Results: " + results.length;
-    emptyEl.style.display = results.length ? "none" : "block";
+    const countText = resultCountEl.textContent.includes("Loaded")
+      ? resultCountEl.textContent + " • Showing: " + results.length
+      : "Results: " + results.length;
+    resultCountEl.textContent = countText;
 
+    emptyEl.style.display = results.length ? "none" : "block";
     const expanded = state.appliedVars;
+
     results.forEach(p=>{
       const body = getBody(p);
       const filled = fillAcrossDelimiters(body, expanded);
@@ -332,24 +368,23 @@
 
       const card = document.createElement("div");
       card.className="p-card";
-      card.innerHTML = `
+      card.innerHTML = \`
         <div class="p-head">
           <div>
-            <div class="p-cat">${(p.category||"").toString()}</div>
-            <h4 class="p-title">${p.title||""}</h4>
-            ${missing.length ? `<div class="warn">Missing: ${missing.map(m => "["+m+"]").join(", ")}</div>` : ""}
+            <div class="p-cat">\${(p.category||"").toString()}</div>
+            <h4 class="p-title">\${escapeHtml(p.title||"")}</h4>
+            \${missing.length ? \`<div class="warn">Missing: \${missing.map(m => "["+m+"]").join(", ")}</div>\` : ""}
           </div>
           <button class="btn" data-action="copy">Copy</button>
         </div>
-        <div class="p-body">${escapeHtml(filled)}</div>
-        <div class="p-tags">${(p.keywords||[]).map(k=>`<span class="chip">#${escapeHtml(k)}</span>`).join("")}</div>
-      `;
+        <div class="p-body">\${escapeHtml(filled)}</div>
+        <div class="p-tags">\${(p.keywords||[]).map(k=>\`<span class="chip">#\${escapeHtml(k)}</span>\`).join("")}</div>
+      \`;
       const copyBtn = card.querySelector('[data-action="copy"]');
       copyBtn.addEventListener("click", async ()=>{
         const ok = await safeCopy(filled);
         copyBtn.textContent = ok ? "Copied ✓" : "Select & Copy";
         if(!ok){
-          // select body text as fallback
           const range = document.createRange();
           const node = card.querySelector(".p-body");
           range.selectNodeContents(node);
@@ -358,39 +393,39 @@
         }
         setTimeout(()=>{ copyBtn.textContent="Copy"; }, 1200);
       });
-
       promptsEl.appendChild(card);
     });
 
-    // diagnostics (first prompt only)
+    // diagnostics (first prompt)
     const sample = results[0] || null;
     if(sample){
       const body = getBody(sample);
       const ph = extractAllPlaceholders(body).sort();
-      diagEl.innerHTML = `
-        <div><b>Title:</b> ${escapeHtml(sample.title||"")}</div>
-        <div><b>Category:</b> ${escapeHtml(String(sample.category||""))}</div>
+      diagEl.innerHTML = \`
+        <div><b>Title:</b> \${escapeHtml(sample.title||"")}</div>
+        <div><b>Category:</b> \${escapeHtml(String(sample.category||""))}</div>
         <div style="margin-top:6px">Placeholders in first visible prompt:</div>
         <ul style="margin:6px 0 0 18px">
-          ${ph.map(x=>{
+          \${ph.map(x=>{
             const lk = toKey(x);
             const val = state.appliedVars[lk];
-            return `<li><code>[${escapeHtml(x)}]</code> → key <code>${escapeHtml(lk)}</code> → <code>${escapeHtml(val||"— (missing)")}</code></li>`;
+            return \`<li><code>[\${escapeHtml(x)}]</code> → key <code>\${escapeHtml(lk)}</code> → <code>\${escapeHtml(val||"— (missing)")}</code></li>\`;
           }).join("")}
         </ul>
-      `;
-    }else{
+      \`;
+    } else {
       diagEl.textContent = "No prompts visible.";
     }
+
+    // raw preview (first 3)
+    const first3 = results.slice(0,3).map(p => ({
+      title: p.title,
+      category: p.category,
+      body: getBody(p)
+    }));
+    raw3El.textContent = JSON.stringify(first3, null, 2);
   }
 
-  function escapeHtml(s){
-    return String(s)
-      .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
-      .replace(/\n/g,"<br/>");
-  }
-
-  // ---------- Apply / Clear ----------
   function applyNow(){
     const ex = buildExpandedVars(state.vars);
     state.appliedVars = ex;
@@ -407,10 +442,10 @@
   }
 
   // ---------- Events ----------
-  applyBtn.addEventListener("click", applyNow);
-  applyFab.addEventListener("click", applyNow);
-  clearBtn.addEventListener("click", clearAll);
-  searchEl.addEventListener("input", (e)=>{ state.search = e.target.value; applyFilters(); renderPrompts(); });
+  document.getElementById("apply-btn").addEventListener("click", applyNow);
+  document.getElementById("apply-fab").addEventListener("click", applyNow);
+  document.getElementById("clear-btn").addEventListener("click", clearAll);
+  document.getElementById("search").addEventListener("input", (e)=>{ state.search = e.target.value; applyFilters(); renderPrompts(); });
 
   // ---------- Init ----------
   (async function init(){
