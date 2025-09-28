@@ -1,9 +1,8 @@
 import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import prompts from "./data/prompts.json"; // ← adjust if your path differs
-// If you use a keys gate, keep its import & wrapper as you had before.
+import prompts from "./data/prompts.json"; // adjust if needed
 
-const BRTS_BUILD = "v4-custom-fields-live";
+const BRTS_BUILD = "v5-layout-fix";
 console.log("[BRTS] Running build:", BRTS_BUILD);
 
 // ---------- Types ----------
@@ -104,6 +103,13 @@ export default function App() {
 
   const handleCopy = async (t: string) => { if (await safeCopy(t)) { setCopied(true); setTimeout(()=>setCopied(false),1200); } };
 
+  // fields to render
+  const FIELD_KEYS = [
+    "property type","address","city","neighborhood","bedrooms","bathrooms","sqft","price",
+    "hoa fee","year built","lot size","school district","key features",
+    "neighborhood characteristics","lifestyle benefits","word count","date","start time","end time","lead source",
+  ];
+
   return (
     <div className="min-h-screen text-white relative overflow-hidden">
       {/* Background */}
@@ -131,7 +137,9 @@ export default function App() {
           </motion.div>
         </div>
 
-        <div className="mt-4 grid lg:grid-cols-[1fr_380px] gap-6 items-start">
+        {/* Page grid with fixed sidebar width */}
+        <div className="mt-4 grid lg:grid-cols-[1fr_420px] gap-6 items-start">
+          {/* Search */}
           <div>
             <input
               className="w-full rounded-xl bg-[#0b0f17] border border-white/10 px-3 py-2 focus:outline-none"
@@ -142,37 +150,36 @@ export default function App() {
           </div>
 
           {/* Listing Details / Custom Fields */}
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
+          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-5 max-w-[420px] w-full">
             <div className="text-sm font-semibold">Listing Details (auto-fill placeholders)</div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              {[
-                "property type","address","city","neighborhood","bedrooms","bathrooms","sqft","price",
-                "hoa fee","year built","lot size","school district","key features",
-                "neighborhood characteristics","lifestyle benefits","word count",
-                "date","start time","end time","lead source"
-              ].map(k => (
-                <div key={k} className="flex items-center gap-2">
-                  <span className="text-[11px] text-white/60 min-w-[110px]">[{k}]</span>
+
+            {/* Stacked fields: label above input; responsive 2-up on larger screens */}
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {FIELD_KEYS.map((k) => (
+                <div key={k}>
+                  <label className="block text-[11px] uppercase tracking-[0.12em] text-white/60">
+                    [{k}]
+                  </label>
                   <input
-                    className="flex-1 rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-1 text-sm"
+                    className="mt-1 w-full rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-2 text-sm"
                     value={vars[k] ?? ""}
-                    onChange={(e) => setVars(prev => ({ ...prev, [k]: e.target.value }))}
+                    onChange={(e) => setVars((prev) => ({ ...prev, [k]: e.target.value }))}
                   />
                 </div>
               ))}
             </div>
 
             {/* Add custom field */}
-            <div className="mt-3 text-xs text-white/70">Add custom field</div>
-            <div className="mt-1 flex gap-2">
+            <div className="mt-4 text-xs text-white/70">Add custom field</div>
+            <div className="mt-1 grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
               <input
-                className="flex-1 rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-1 text-sm"
+                className="rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-2 text-sm"
                 placeholder="placeholder name (e.g., garage spaces)"
                 value={newKey}
                 onChange={(e) => setNewKey(e.target.value)}
               />
               <input
-                className="flex-1 rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-1 text-sm"
+                className="rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-2 text-sm"
                 placeholder="value (e.g., 2)"
                 value={newVal}
                 onChange={(e) => setNewVal(e.target.value)}
@@ -181,27 +188,32 @@ export default function App() {
                 onClick={() => {
                   const k = newKey.trim();
                   if (!k) return;
-                  setVars(v => ({ ...v, [k]: newVal }));
+                  setVars((v) => ({ ...v, [k]: newVal }));
                   setNewKey(""); setNewVal("");
                 }}
-                className="px-3 py-1.5 rounded-lg border border-white/15 hover:border-white/35 text-sm"
+                className="px-3 py-2 rounded-lg border border-white/15 hover:border-white/35 text-sm"
               >
                 Add
               </button>
             </div>
 
-            {/* Show placeholders detected in current results */}
-            {placeholdersInResults.length>0 && (
-              <div className="mt-3">
-                <div className="text-[11px] uppercase tracking-[0.22em] text-white/70">Placeholders found in results</div>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {placeholdersInResults.map(ph => {
+            {/* Placeholders found */}
+            {placeholdersInResults.length > 0 && (
+              <div className="mt-4">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-white/70">
+                  Placeholders found in results
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {placeholdersInResults.map((ph) => {
                     const ok = !!vars[ph]?.trim();
                     return (
-                      <span key={ph}
+                      <span
+                        key={ph}
                         className={`text-[11px] px-2 py-0.5 rounded-full border ${
-                          ok ? "border-emerald-300/30 bg-emerald-500/15 text-emerald-200"
-                             : "border-white/10 bg-white/10 text-white/80"}`}
+                          ok
+                            ? "border-emerald-300/30 bg-emerald-500/15 text-emerald-200"
+                            : "border-white/10 bg-white/10 text-white/80"
+                        }`}
                         title={ok ? "Filled" : "Empty"}
                       >
                         [{ph}]
@@ -215,28 +227,34 @@ export default function App() {
         </div>
       </header>
 
-      {/* Layout */}
+      {/* Main layout */}
       <section className="max-w-7xl mx-auto px-6 grid xl:grid-cols-[300px_1fr] gap-6 pb-12">
-        {/* Sidebar */}
+        {/* Sidebar Filters */}
         <aside className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-5 sticky top-6 self-start">
           <h3 className="font-semibold tracking-wide">Categories</h3>
           <div className="mt-3 flex flex-wrap gap-2">
-            {CATEGORIES.map(c => <Chip key={c} label={c} active={selectedCats.has(c)} onClick={()=>toggleSet(setSelectedCats,c)} />)}
+            {CATEGORIES.map((c) => (
+              <Chip key={c} label={c} active={selectedCats.has(c)} onClick={() => toggleSet(setSelectedCats, c)} />
+            ))}
           </div>
           <div className="mt-6 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent" />
           <h3 className="mt-6 font-semibold tracking-wide">Keywords</h3>
           <div className="mt-3 space-y-4">
-            {Object.entries(KEYWORD_GROUPS).map(([group,tags]) => (
+            {Object.entries(KEYWORD_GROUPS).map(([group, tags]) => (
               <div key={group}>
                 <div className="text-[11px] uppercase tracking-[0.22em] text-white/70">{group}</div>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  {tags.map(t => <Chip key={t} label={t} active={selectedTags.has(t)} onClick={()=>toggleSet(setSelectedTags,t)} />)}
+                  {tags.map((t) => (
+                    <Chip key={t} label={t} active={selectedTags.has(t)} onClick={() => toggleSet(setSelectedTags, t)} />
+                  ))}
                 </div>
               </div>
             ))}
           </div>
-          <button onClick={()=>{ setSelectedCats(new Set()); setSelectedTags(new Set()); setQ(""); }}
-            className="mt-6 w-full text-center px-4 py-2 rounded-xl border border-white/15 hover:border-white/35 backdrop-blur bg-white/5">
+          <button
+            onClick={() => { setSelectedCats(new Set()); setSelectedTags(new Set()); setQ(""); }}
+            className="mt-6 w-full text-center px-4 py-2 rounded-xl border border-white/15 hover:border-white/35 backdrop-blur bg-white/5"
+          >
             Clear filters
           </button>
         </aside>
@@ -245,7 +263,9 @@ export default function App() {
         <main>
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
             <AnimatePresence>
-              {results.map(p => <PromptCard key={p.id} p={p} vars={vars} onCopy={handleCopy} />)}
+              {results.map((p) => (
+                <PromptCard key={p.id} p={p} vars={vars} onCopy={handleCopy} />
+              ))}
             </AnimatePresence>
           </div>
 
