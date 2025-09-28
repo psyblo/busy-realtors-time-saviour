@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import prompts from "./data/prompts.json"; // adjust if needed
+import prompts from "./data/prompts.json"; // adjust path if needed
 
-const BRTS_BUILD = "v6-top-two-columns";
+const BRTS_BUILD = "v7-alias-fix";
 console.log("[BRTS] Running build:", BRTS_BUILD);
 
 // ---------- Types ----------
@@ -21,9 +21,58 @@ const KEYWORD_GROUPS: Record<string, string[]> = {
 
 // ---------- Placeholder helpers ----------
 const PH_RE = /\[(.+?)\]/g;
-const extractPlaceholders = (s: string) => Array.from(new Set([...s.matchAll(PH_RE)].map(m => m[1])));
-const applyVars = (s: string, vars: Record<string,string>) => s.replace(PH_RE, (_, k) => vars[k] ?? `[${k}]`);
-const safeCopy = async (t: string) => { try { await navigator.clipboard.writeText(t); return true; } catch { return false; } };
+const toKey = (s: string) =>
+  s.toLowerCase().replace(/\s+/g, " ").replace(/[^\w\s-]/g, "").trim();
+
+// Aliases: map prompt placeholder -> acceptable alternative form keys used in form
+const ALIASES: Record<string, string[]> = {
+  "number of bedrooms": ["bedrooms", "beds"],
+  "number of bathrooms": ["bathrooms", "baths"],
+  "unique selling points": ["key features", "features"],
+  "hoa": ["hoa fee", "hoa fees"],
+  "hoa fees": ["hoa fee", "hoa"],
+  "price per sqft": ["ppsf", "price/ sqft", "price per sq ft"],
+  "property type": ["ptype", "type"],
+  "neighbourhood": ["neighborhood"], // UK/US spelling
+  "neighbourhood characteristics": ["neighborhood characteristics"],
+  "city/town": ["city"],
+  "year built": ["built year", "yr built"],
+};
+
+function getVarFor(rawKey: string, vars: Record<string, string>) {
+  const k = toKey(rawKey);
+  // exact
+  if (vars[k]?.trim()) return vars[k];
+  // direct alias: rawKey -> list of alternates
+  const alts = ALIASES[k];
+  if (alts) {
+    for (const alt of alts) {
+      const v = vars[toKey(alt)];
+      if (v?.trim()) return v;
+    }
+  }
+  // try simple normalizations (singular/plural common suffixes)
+  const simple = [k.replace(/s\b/, ""), k + "s", k.replace(/ies\b/, "y"), k.replace(/y\b/, "ies")];
+  for (const cand of simple) {
+    const v = vars[cand];
+    if (v?.trim()) return v;
+  }
+  return undefined;
+}
+
+const extractPlaceholders = (s: string) =>
+  Array.from(new Set([...s.matchAll(PH_RE)].map((m) => m[1])));
+
+function applyVarsWithAliases(s: string, vars: Record<string, string>) {
+  return s.replace(PH_RE, (_, key) => {
+    const v = getVarFor(key, vars);
+    return v !== undefined && v !== "" ? v : `[${key}]`;
+  });
+}
+
+const safeCopy = async (t: string) => {
+  try { await navigator.clipboard.writeText(t); return true; } catch { return false; }
+};
 
 // ---------- UI atoms ----------
 function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
@@ -38,8 +87,11 @@ function Chip({ label, active, onClick }: { label: string; active: boolean; onCl
 }
 
 function PromptCard({ p, vars, onCopy }: { p: Prompt; vars: Record<string,string>; onCopy: (text:string)=>void }) {
-  const filled = useMemo(() => applyVars(p.body, vars), [p.body, vars]);
-  const missing = useMemo(() => extractPlaceholders(p.body).filter(k => !vars[k]?.trim()), [p.body, vars]);
+  const filled = useMemo(() => applyVarsWithAliases(p.body, vars), [p.body, vars]);
+  const missing = useMemo(() => {
+    return extractPlaceholders(p.body).filter((k) => !getVarFor(k, vars));
+  }, [p.body, vars]);
+
   return (
     <motion.div layout initial={{opacity:0,y:14}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}}
       className="relative rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-[0_30px_120px_rgba(18,214,223,.12)]">
@@ -48,7 +100,9 @@ function PromptCard({ p, vars, onCopy }: { p: Prompt; vars: Record<string,string
           <div className="text-[11px] uppercase tracking-[0.22em] text-white/70">{p.category}</div>
           <h3 className="mt-1 font-semibold text-white/95 leading-snug">{p.title}</h3>
           {missing.length > 0 && (
-            <div className="mt-1 text-[11px] text-amber-200/90">Missing: {missing.map(m => `[${m}]`).join(", ")}</div>
+            <div className="mt-1 text-[11px] text-amber-200/90">
+              Missing: {missing.map((m) => `[${m}]`).join(", ")}
+            </div>
           )}
         </div>
         <motion.button whileTap={{ scale: 0.98 }} onClick={() => onCopy(filled)}
@@ -73,13 +127,30 @@ export default function App() {
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
 
-  // Listing Details + custom fields
+  // Listing Details + custom fields (we store keys normalized with toKey)
   const [vars, setVars] = useState<Record<string,string>>({
-    "property type":"", address:"", city:"", neighborhood:"", bedrooms:"", bathrooms:"", sqft:"", price:"",
-    "hoa fee":"", "year built":"", "lot size":"", "school district":"",
-    "key features":"", "neighborhood characteristics":"", "lifestyle benefits":"",
-    "word count":"170", date:"", "start time":"", "end time":"", "lead source":""
+    [toKey("property type")] :"",
+    [toKey("address")] :"",
+    [toKey("city")] :"",
+    [toKey("neighborhood")] :"",
+    [toKey("bedrooms")] :"",
+    [toKey("bathrooms")] :"",
+    [toKey("sqft")] :"",
+    [toKey("price")] :"",
+    [toKey("hoa fee")] :"",
+    [toKey("year built")] :"",
+    [toKey("lot size")] :"",
+    [toKey("school district")] :"",
+    [toKey("key features")] :"",
+    [toKey("neighborhood characteristics")] :"",
+    [toKey("lifestyle benefits")] :"",
+    [toKey("word count")] :"170",
+    [toKey("date")] :"",
+    [toKey("start time")] :"",
+    [toKey("end time")] :"",
+    [toKey("lead source")] :"",
   });
+
   const [newKey, setNewKey] = useState(""); const [newVal, setNewVal] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -137,7 +208,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* TOP ROW: Filters (left) + Details (right) */}
+      {/* TOP ROW: Filters + Details */}
       <section className="max-w-7xl mx-auto px-6">
         <div className="grid gap-6 lg:grid-cols-[380px_1fr] items-start">
           {/* Filters */}
@@ -187,16 +258,23 @@ export default function App() {
             <div className="mt-5">
               <div className="text-sm font-semibold">Listing Details (auto-fill placeholders)</div>
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {FIELD_KEYS.map((k) => (
-                  <div key={k}>
-                    <label className="block text-[11px] uppercase tracking-[0.12em] text-white/60">[{k}]</label>
-                    <input
-                      className="mt-1 w-full rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-2 text-sm"
-                      value={vars[k] ?? ""}
-                      onChange={(e) => setVars((prev) => ({ ...prev, [k]: e.target.value }))}
-                    />
-                  </div>
-                ))}
+                {[
+                  "property type","address","city","neighborhood","bedrooms","bathrooms","sqft","price",
+                  "hoa fee","year built","lot size","school district","key features",
+                  "neighborhood characteristics","lifestyle benefits","word count","date","start time","end time","lead source",
+                ].map((raw) => {
+                  const k = toKey(raw);
+                  return (
+                    <div key={k}>
+                      <label className="block text-[11px] uppercase tracking-[0.12em] text-white/60">[{raw}]</label>
+                      <input
+                        className="mt-1 w-full rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-2 text-sm"
+                        value={vars[k] ?? ""}
+                        onChange={(e) => setVars((prev) => ({ ...prev, [k]: e.target.value }))}
+                      />
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Add custom field */}
@@ -216,7 +294,7 @@ export default function App() {
                 />
                 <button
                   onClick={() => {
-                    const k = newKey.trim();
+                    const k = toKey(newKey);
                     if (!k) return;
                     setVars((v) => ({ ...v, [k]: newVal }));
                     setNewKey(""); setNewVal("");
@@ -235,7 +313,7 @@ export default function App() {
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1">
                     {placeholdersInResults.map((ph) => {
-                      const ok = !!vars[ph]?.trim();
+                      const ok = !!getVarFor(ph, vars);
                       return (
                         <span
                           key={ph}
@@ -263,12 +341,13 @@ export default function App() {
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
           <AnimatePresence>
             {results.map((p) => (
-              <PromptCard key={p.id} p={p} vars={vars} onCopy={handleCopy} />
+              <PromptCard key={p.id} p={p} vars={vars} onCopy={async (t) => {
+                await handleCopy(t);
+              }} />
             ))}
           </AnimatePresence>
         </div>
 
-        {/* Empty state */}
         {results.length === 0 && (
           <div className="mt-6 p-6 rounded-2xl border border-white/10 bg-white/5 text-sm text-white/70 flex items-center gap-4">
             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" className="opacity-70">
