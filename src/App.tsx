@@ -25,8 +25,26 @@ const KEYWORD_GROUPS: Record<string, string[]> = {
   Channel: ["mls", "website", "instagram", "facebook", "tiktok", "google", "email"],
 };
 
+// --- Helpers for placeholder replacement ---
+const PLACEHOLDER_RE = /\[(.+?)\]/g;
+
+function extractPlaceholders(text: string): string[] {
+  const out = new Set<string>();
+  for (const m of text.matchAll(PLACEHOLDER_RE)) out.add(m[1]);
+  return [...out];
+}
+
 function applyVars(body: string, vars: Record<string, string>) {
-  return body.replace(/\[(.+?)\]/g, (_, key) => vars[key] ?? `[${key}]`);
+  return body.replace(PLACEHOLDER_RE, (_, key) => vars[key] ?? `[${key}]`);
+}
+
+async function safeCopy(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
@@ -45,27 +63,21 @@ function Chip({ label, active, onClick }: { label: string; active: boolean; onCl
   );
 }
 
-function CopyBtn({ text }: { text: string }) {
-  const [ok, setOk] = useState(false);
-  return (
-    <motion.button
-      whileTap={{ scale: 0.98 }}
-      onClick={async () => {
-        try {
-          await navigator.clipboard.writeText(text);
-          setOk(true);
-          setTimeout(() => setOk(false), 1400);
-        } catch {}
-      }}
-      className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-gradient-to-r from-white to-white/80 text-black shadow-[0_10px_30px_rgba(255,255,255,.15)]"
-    >
-      {ok ? "Copied ✓" : "Copy"}
-    </motion.button>
-  );
-}
-
-function PromptCard({ p, vars }: { p: Prompt; vars: Record<string, string> }) {
+function PromptCard({
+  p,
+  vars,
+  onCopy,
+}: {
+  p: Prompt;
+  vars: Record<string, string>;
+  onCopy: (text: string) => void;
+}) {
   const filled = useMemo(() => applyVars(p.body, vars), [p.body, vars]);
+  const missing = useMemo(() => {
+    const need = extractPlaceholders(p.body);
+    return need.filter((k) => !vars[k]?.trim());
+  }, [p.body, vars]);
+
   return (
     <motion.div
       layout
@@ -78,8 +90,20 @@ function PromptCard({ p, vars }: { p: Prompt; vars: Record<string, string> }) {
         <div>
           <div className="text-[11px] uppercase tracking-[0.22em] text-white/70">{p.category}</div>
           <h3 className="mt-1 font-semibold text-white/95 leading-snug">{p.title}</h3>
+          {missing.length > 0 && (
+            <div className="mt-1 text-[11px] text-amber-200/90">
+              Missing: {missing.map((m) => `[${m}]`).join(", ")}
+            </div>
+          )}
         </div>
-        <CopyBtn text={filled} />
+        <motion.button
+          whileTap={{ scale: 0.98 }}
+          onClick={() => onCopy(filled)}
+          className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-gradient-to-r from-white to-white/80 text-black shadow-[0_10px_30px_rgba(255,255,255,.15)]"
+          title="Copy filled prompt"
+        >
+          Copy
+        </motion.button>
       </div>
       <div className="mt-3 text-sm text-white/85 whitespace-pre-wrap leading-relaxed">{filled}</div>
       <div className="mt-3 flex flex-wrap gap-1">
@@ -101,22 +125,34 @@ export default function App() {
   const [data] = useState<Prompt[]>(prompts as Prompt[]);
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
+
+  // Common fields + users can add more
   const [vars, setVars] = useState<Record<string, string>>({
-    "property type": "single-family home",
-    city: "Miami",
-    bedrooms: "3",
-    bathrooms: "2",
-    "key features": "ocean views, chef’s kitchen, smart-home controls",
-    "neighborhood characteristics": "waterfront walks, boutique cafes, top-rated schools",
-    "lifestyle benefits": "morning sun on the balcony, 5-minute park access",
+    "property type": "",
+    address: "",
+    city: "",
+    neighborhood: "",
+    bedrooms: "",
+    bathrooms: "",
+    sqft: "",
+    price: "",
+    "key features": "",
+    "neighborhood characteristics": "",
+    "lifestyle benefits": "",
     "word count": "170",
-    address: "123 Bayfront Dr",
-    date: "Saturday",
-    "start time": "11:00",
-    "end time": "14:00",
-    neighborhood: "Edgewater",
-    "lead source": "website form",
+    date: "",
+    "start time": "",
+    "end time": "",
+    "lead source": "",
+    "hoa fee": "",
+    "year built": "",
+    "lot size": "",
+    "school district": "",
   });
+
+  const [newKey, setNewKey] = useState("");
+  const [newVal, setNewVal] = useState("");
+  const [copied, setCopied] = useState(false);
 
   const toggleSet = (
     setter: React.Dispatch<React.SetStateAction<Set<string>>>,
@@ -141,8 +177,23 @@ export default function App() {
     });
   }, [q, selectedCats, selectedTags, data]);
 
+  const allPlaceholdersInResults = useMemo(() => {
+    const set = new Set<string>();
+    results.forEach((p) => extractPlaceholders(p.body).forEach((x) => set.add(x)));
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [results]);
+
+  const handleCopy = async (text: string) => {
+    const ok = await safeCopy(text);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    }
+  };
+
   return (
     <div className="min-h-screen text-white relative overflow-hidden">
+      {/* Background */}
       <div className="pointer-events-none absolute inset-0 -z-10">
         <div
           className="absolute -top-24 -right-24 h-[36rem] w-[36rem] rounded-full blur-3xl opacity-30"
@@ -154,17 +205,134 @@ export default function App() {
         />
         <div className="absolute inset-0 bg-[#0b0f17]/95" />
       </div>
+
+      {/* Header */}
       <header className="max-w-7xl mx-auto px-6 pt-10 pb-8">
-        <h1 className="text-3xl md:text-4xl font-extrabold leading-tight">Busy Realtors Time Saviour</h1>
-        <p className="text-white/70 text-sm mt-1">Interactive Prompt Finder • Premium Edition</p>
-        <input
-          className="mt-4 w-full rounded-xl bg-[#0b0f17] border border-white/10 px-3 py-2 focus:outline-none"
-          placeholder={"Search " + (Array.isArray(data) ? data.length : 0) + " prompts…"}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h1 className="text-3xl md:text-4xl font-extrabold leading-tight">
+              Busy Realtors Time Saviour
+            </h1>
+            <p className="text-white/70 text-sm mt-1">Interactive Prompt Finder • Premium Edition</p>
+          </div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: copied ? 1 : 0 }}
+            className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-white/10 border border-white/15"
+          >
+            Copied ✓
+          </motion.div>
+        </div>
+
+        <div className="mt-4 grid lg:grid-cols-[1fr_380px] gap-6 items-start">
+          <div>
+            <input
+              className="w-full rounded-xl bg-[#0b0f17] border border-white/10 px-3 py-2 focus:outline-none"
+              placeholder={`Search ${Array.isArray(data) ? data.length : 0} prompts…`}
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+
+          {/* Listing Details Panel */}
+          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
+            <div className="text-sm font-semibold">Listing Details (auto-fill placeholders)</div>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {[
+                "property type",
+                "address",
+                "city",
+                "neighborhood",
+                "bedrooms",
+                "bathrooms",
+                "sqft",
+                "price",
+                "hoa fee",
+                "year built",
+                "lot size",
+                "school district",
+                "key features",
+                "neighborhood characteristics",
+                "lifestyle benefits",
+                "word count",
+                "date",
+                "start time",
+                "end time",
+                "lead source",
+              ].map((k) => (
+                <div key={k} className="flex items-center gap-2">
+                  <span className="text-[11px] text-white/60 min-w-[110px]">[{k}]</span>
+                  <input
+                    className="flex-1 rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-1 text-sm"
+                    value={vars[k] ?? ""}
+                    onChange={(e) => setVars((prev) => ({ ...prev, [k]: e.target.value }))}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* Custom fields */}
+            <div className="mt-3 text-xs text-white/70">Add custom field</div>
+            <div className="mt-1 flex gap-2">
+              <input
+                className="flex-1 rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-1 text-sm"
+                placeholder="placeholder name (e.g., garage spaces)"
+                value={newKey}
+                onChange={(e) => setNewKey(e.target.value)}
+              />
+              <input
+                className="flex-1 rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-1 text-sm"
+                placeholder="value (e.g., 2)"
+                value={newVal}
+                onChange={(e) => setNewVal(e.target.value)}
+              />
+              <button
+                onClick={() => {
+                  const key = newKey.trim();
+                  if (!key) return;
+                  setVars((v) => ({ ...v, [key]: newVal }));
+                  setNewKey("");
+                  setNewVal("");
+                }}
+                className="px-3 py-1.5 rounded-lg border border-white/15 hover:border-white/35 text-sm"
+              >
+                Add
+              </button>
+            </div>
+
+            {/* Quick view of needed placeholders in current results */}
+            {allPlaceholdersInResults.length > 0 && (
+              <div className="mt-3">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-white/70">
+                  Placeholders found in results
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {allPlaceholdersInResults.map((ph) => {
+                    const ok = !!vars[ph]?.trim();
+                    return (
+                      <span
+                        key={ph}
+                        className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                          ok
+                            ? "border-emerald-300/30 bg-emerald-500/15 text-emerald-200"
+                            : "border-white/10 bg-white/10 text-white/80"
+                        }`}
+                        title={ok ? "Filled" : "Empty"}
+                      >
+                        [{ph}]
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </header>
+
+      {/* Main */}
       <section className="max-w-7xl mx-auto px-6 grid xl:grid-cols-[300px_1fr] gap-6 pb-12">
+        {/* Sidebar Filters */}
         <aside className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-5 sticky top-6 self-start">
           <h3 className="font-semibold tracking-wide">Categories</h3>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -197,16 +365,30 @@ export default function App() {
             Clear filters
           </button>
         </aside>
+
+        {/* Results */}
         <main>
           <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
             <AnimatePresence>
               {results.map((p) => (
-                <PromptCard key={p.id} p={p} vars={vars} />
+                <PromptCard key={p.id} p={p} vars={vars} onCopy={handleCopy} />
               ))}
             </AnimatePresence>
           </div>
+
+          {results.length === 0 && (
+            <div className="mt-6 p-6 rounded-2xl border border-white/10 bg-white/5 text-sm text-white/70 flex items-center gap-4">
+              <svg width="36" height="36" viewBox="0 0 24 24" fill="none" className="opacity-70">
+                <path d="M21 21l-4.35-4.35" stroke="white" strokeOpacity=".7" strokeWidth="1.6" strokeLinecap="round" />
+                <circle cx="10" cy="10" r="6" stroke="white" strokeOpacity=".7" strokeWidth="1.6" />
+              </svg>
+              No prompts match your filters yet. Try removing some chips or clearing the search.
+            </div>
+          )}
         </main>
       </section>
+
+      {/* Footer */}
       <footer className="max-w-7xl mx-auto px-6 py-10 text-xs text-white/60">
         <div className="flex items-center justify-between">
           <span>© {new Date().getFullYear()} Hate Writing — Busy Realtors Time Saviour</span>
