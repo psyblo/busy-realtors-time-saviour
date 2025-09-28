@@ -1,7 +1,0 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
-/* Premium background helpers */
-.bg-radial-a { background: radial-gradient(closest-side, #12D6DF55, transparent); }
-.bg-radial-b { background: radial-gradient(closest-side, #7C9CFF55, transparent); }
