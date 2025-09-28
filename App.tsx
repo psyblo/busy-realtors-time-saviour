@@ -1,5 +1,5 @@
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 export type Prompt = {
@@ -200,7 +200,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen text-white relative overflow-hidden">
-      {/* Background aesthetics */}
       <div className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute -top-24 -right-24 h-[36rem] w-[36rem] rounded-full blur-3xl opacity-30 bg-radial-a" />
         <div className="absolute -bottom-24 -left-24 h-[36rem] w-[36rem] rounded-full blur-3xl opacity-30 bg-radial-b" />

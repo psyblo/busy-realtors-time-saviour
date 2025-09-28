@@ -1,30 +1,19 @@
 
-# Busy Realtors Time Saviour — Interactive Prompt Finder
+# Busy Realtors Time Saviour — Fixed Build
 
-Premium, glassy, animated UI to filter and copy real-estate prompts.
+This project is ready for Vercel. Entry point is **/src/main.tsx**.
 
-## Quick start (local)
-```bash
-npm install
-npm run dev
-```
+## Deploy
+1. Upload the *contents* of this folder to a new GitHub repo.
+2. In Vercel → New Project → Import that repo → Deploy.
 
-## Build for Vercel
-```bash
-npm run build
-# Deploy the repo to Vercel (recommended),
-# or drag & drop the folder in Vercel's dashboard,
-# Vercel will run the build and host it.
-```
-
-## Add your full prompt list
-Open `src/App.tsx` and extend `DEFAULT_DATA`. Each prompt:
-```ts
-{
-  id: "your-id",
-  title: "Your title",
-  category: "Listings" | "Tone" | "Social" | "Ads" | "Email" | "Client" | "SEO" | "Business",
-  keywords: ["mls","website","seo"],
-  body: "Your prompt with [placeholders]"
-}
-```
+Folder layout must include:
+- index.html
+- package.json
+- vite.config.ts
+- tsconfig.json
+- postcss.config.js
+- tailwind.config.ts
+- src/main.tsx
+- src/App.tsx
+- src/index.css
