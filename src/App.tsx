@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import prompts from "./data/prompts.json"; // adjust path if needed
 
-const BRTS_BUILD = "v7-alias-fix";
+const BRTS_BUILD = "v8-expanded-vars";
 console.log("[BRTS] Running build:", BRTS_BUILD);
 
 // ---------- Types ----------
@@ -24,7 +24,7 @@ const PH_RE = /\[(.+?)\]/g;
 const toKey = (s: string) =>
   s.toLowerCase().replace(/\s+/g, " ").replace(/[^\w\s-]/g, "").trim();
 
-// Aliases: map prompt placeholder -> acceptable alternative form keys used in form
+// Canonical prompt placeholder → alternative names users might fill in the form
 const ALIASES: Record<string, string[]> = {
   "number of bedrooms": ["bedrooms", "beds"],
   "number of bathrooms": ["bathrooms", "baths"],
@@ -33,46 +33,57 @@ const ALIASES: Record<string, string[]> = {
   "hoa fees": ["hoa fee", "hoa"],
   "price per sqft": ["ppsf", "price/ sqft", "price per sq ft"],
   "property type": ["ptype", "type"],
-  "neighbourhood": ["neighborhood"], // UK/US spelling
+  "neighbourhood": ["neighborhood"], // UK↔US
   "neighbourhood characteristics": ["neighborhood characteristics"],
   "city/town": ["city"],
   "year built": ["built year", "yr built"],
 };
 
-function getVarFor(rawKey: string, vars: Record<string, string>) {
-  const k = toKey(rawKey);
-  // exact
-  if (vars[k]?.trim()) return vars[k];
-  // direct alias: rawKey -> list of alternates
-  const alts = ALIASES[k];
-  if (alts) {
-    for (const alt of alts) {
-      const v = vars[toKey(alt)];
-      if (v?.trim()) return v;
+function buildExpandedVars(vars: Record<string, string>) {
+  // normalize & drop empties
+  const base: Record<string, string> = {};
+  for (const [k, v] of Object.entries(vars)) {
+    const nk = toKey(k);
+    if (typeof v === "string" && v.trim() !== "") base[nk] = v.trim();
+  }
+  const out: Record<string, string> = { ...base };
+
+  // If an alias (alt) has a value, copy to canonical
+  for (const [canonicalRaw, alts] of Object.entries(ALIASES)) {
+    const canonical = toKey(canonicalRaw);
+    if (!out[canonical]) {
+      for (const alt of alts) {
+        const val = out[toKey(alt)];
+        if (val) { out[canonical] = val; break; }
+      }
     }
   }
-  // try simple normalizations (singular/plural common suffixes)
-  const simple = [k.replace(/s\b/, ""), k + "s", k.replace(/ies\b/, "y"), k.replace(/y\b/, "ies")];
-  for (const cand of simple) {
-    const v = vars[cand];
-    if (v?.trim()) return v;
+  // If canonical has a value, copy to all alts (don’t overwrite existing)
+  for (const [canonicalRaw, alts] of Object.entries(ALIASES)) {
+    const canonical = toKey(canonicalRaw);
+    const val = out[canonical];
+    if (val) {
+      for (const alt of alts) {
+        const ak = toKey(alt);
+        if (!out[ak]) out[ak] = val;
+      }
+    }
   }
-  return undefined;
+  return out;
 }
 
 const extractPlaceholders = (s: string) =>
   Array.from(new Set([...s.matchAll(PH_RE)].map((m) => m[1])));
 
-function applyVarsWithAliases(s: string, vars: Record<string, string>) {
-  return s.replace(PH_RE, (_, key) => {
-    const v = getVarFor(key, vars);
-    return v !== undefined && v !== "" ? v : `[${key}]`;
+function applyVarsExpanded(s: string, expandedVars: Record<string, string>) {
+  return s.replace(PH_RE, (_, raw) => {
+    const k = toKey(raw);
+    const v = expandedVars[k];
+    return v ? v : `[${raw}]`; // never blank-replace; keep placeholder visible if empty
   });
 }
 
-const safeCopy = async (t: string) => {
-  try { await navigator.clipboard.writeText(t); return true; } catch { return false; }
-};
+const safeCopy = async (t: string) => { try { await navigator.clipboard.writeText(t); return true; } catch { return false; } };
 
 // ---------- UI atoms ----------
 function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
@@ -86,11 +97,17 @@ function Chip({ label, active, onClick }: { label: string; active: boolean; onCl
   );
 }
 
-function PromptCard({ p, vars, onCopy }: { p: Prompt; vars: Record<string,string>; onCopy: (text:string)=>void }) {
-  const filled = useMemo(() => applyVarsWithAliases(p.body, vars), [p.body, vars]);
+function PromptCard({
+  p, expandedVars, onCopy,
+}: {
+  p: Prompt;
+  expandedVars: Record<string,string>;
+  onCopy: (text:string)=>void;
+}) {
+  const filled = useMemo(() => applyVarsExpanded(p.body, expandedVars), [p.body, expandedVars]);
   const missing = useMemo(() => {
-    return extractPlaceholders(p.body).filter((k) => !getVarFor(k, vars));
-  }, [p.body, vars]);
+    return extractPlaceholders(p.body).filter((ph) => !expandedVars[toKey(ph)]);
+  }, [p.body, expandedVars]);
 
   return (
     <motion.div layout initial={{opacity:0,y:14}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}}
@@ -127,7 +144,7 @@ export default function App() {
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
 
-  // Listing Details + custom fields (we store keys normalized with toKey)
+  // Listing Details + custom fields (store normalized keys)
   const [vars, setVars] = useState<Record<string,string>>({
     [toKey("property type")] :"",
     [toKey("address")] :"",
@@ -150,6 +167,8 @@ export default function App() {
     [toKey("end time")] :"",
     [toKey("lead source")] :"",
   });
+
+  const expandedVars = useMemo(() => buildExpandedVars(vars), [vars]);
 
   const [newKey, setNewKey] = useState(""); const [newVal, setNewVal] = useState("");
   const [copied, setCopied] = useState(false);
@@ -313,7 +332,7 @@ export default function App() {
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1">
                     {placeholdersInResults.map((ph) => {
-                      const ok = !!getVarFor(ph, vars);
+                      const ok = !!expandedVars[toKey(ph)];
                       return (
                         <span
                           key={ph}
@@ -341,9 +360,7 @@ export default function App() {
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
           <AnimatePresence>
             {results.map((p) => (
-              <PromptCard key={p.id} p={p} vars={vars} onCopy={async (t) => {
-                await handleCopy(t);
-              }} />
+              <PromptCard key={p.id} p={p} expandedVars={expandedVars} onCopy={handleCopy} />
             ))}
           </AnimatePresence>
         </div>
