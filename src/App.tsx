@@ -1,17 +1,17 @@
 import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import prompts from "./data/prompts.json"; // adjust path if needed
+import prompts from "./data/prompts.json";
 
-const BRTS_BUILD = "v8-expanded-vars";
-console.log("[BRTS] Running build:", BRTS_BUILD);
+const BUILD = "v9-alias-lock";
+console.log("[BRTS] build:", BUILD);
 
 // ---------- Types ----------
 type Category = "Listings" | "Tone" | "Social" | "Ads" | "Email" | "Client" | "SEO" | "Business";
 type Prompt = { id: string; title: string; category: Category; keywords: string[]; body: string; };
 
-// ---------- Static filters ----------
+// ---------- Filters ----------
 const CATEGORIES: Category[] = ["Listings","Tone","Social","Ads","Email","Client","SEO","Business"];
-const KEYWORD_GROUPS: Record<string, string[]> = {
+const KEYWORD_GROUPS: Record<string,string[]> = {
   "Property Type": ["condo","single-family","townhome","multifamily","new-build"],
   Audience: ["luxury","family","investor","first-time","downsizer","young-professional","vacation","eco","tech","relocation"],
   Feature: ["waterfront","garden","pool","smart-home","garage","views","amenities","finishes"],
@@ -24,44 +24,44 @@ const PH_RE = /\[(.+?)\]/g;
 const toKey = (s: string) =>
   s.toLowerCase().replace(/\s+/g, " ").replace(/[^\w\s-]/g, "").trim();
 
-// Canonical prompt placeholder → alternative names users might fill in the form
-const ALIASES: Record<string, string[]> = {
-  "number of bedrooms": ["bedrooms", "beds"],
-  "number of bathrooms": ["bathrooms", "baths"],
-  "unique selling points": ["key features", "features"],
-  "hoa": ["hoa fee", "hoa fees"],
-  "hoa fees": ["hoa fee", "hoa"],
-  "price per sqft": ["ppsf", "price/ sqft", "price per sq ft"],
-  "property type": ["ptype", "type"],
+// canonical prompt placeholders → alt names users type
+const ALIASES: Record<string,string[]> = {
+  "number of bedrooms": ["bedrooms","beds"],
+  "number of bathrooms": ["bathrooms","baths"],
+  "unique selling points": ["key features","features"],
+  "hoa": ["hoa fee","hoa fees"],
+  "hoa fees": ["hoa fee","hoa"],
+  "price per sqft": ["ppsf","price/ sqft","price per sq ft"],
+  "property type": ["ptype","type"],
   "neighbourhood": ["neighborhood"], // UK↔US
   "neighbourhood characteristics": ["neighborhood characteristics"],
   "city/town": ["city"],
-  "year built": ["built year", "yr built"],
+  "year built": ["built year","yr built"],
 };
 
-function buildExpandedVars(vars: Record<string, string>) {
-  // normalize & drop empties
-  const base: Record<string, string> = {};
-  for (const [k, v] of Object.entries(vars)) {
+function buildExpandedVars(vars: Record<string,string>) {
+  // normalize + drop empties
+  const base: Record<string,string> = {};
+  for (const [k,v] of Object.entries(vars)) {
     const nk = toKey(k);
-    if (typeof v === "string" && v.trim() !== "") base[nk] = v.trim();
+    if (v?.trim()) base[nk] = v.trim();
   }
-  const out: Record<string, string> = { ...base };
+  const out: Record<string,string> = { ...base };
 
-  // If an alias (alt) has a value, copy to canonical
-  for (const [canonicalRaw, alts] of Object.entries(ALIASES)) {
-    const canonical = toKey(canonicalRaw);
-    if (!out[canonical]) {
+  // 1) if an ALT has value, copy to canonical
+  for (const [canonRaw, alts] of Object.entries(ALIASES)) {
+    const canon = toKey(canonRaw);
+    if (!out[canon]) {
       for (const alt of alts) {
         const val = out[toKey(alt)];
-        if (val) { out[canonical] = val; break; }
+        if (val) { out[canon] = val; break; }
       }
     }
   }
-  // If canonical has a value, copy to all alts (don’t overwrite existing)
-  for (const [canonicalRaw, alts] of Object.entries(ALIASES)) {
-    const canonical = toKey(canonicalRaw);
-    const val = out[canonical];
+  // 2) if canonical has value, copy to all ALTs (don’t overwrite)
+  for (const [canonRaw, alts] of Object.entries(ALIASES)) {
+    const canon = toKey(canonRaw);
+    const val = out[canon];
     if (val) {
       for (const alt of alts) {
         const ak = toKey(alt);
@@ -72,18 +72,11 @@ function buildExpandedVars(vars: Record<string, string>) {
   return out;
 }
 
-const extractPlaceholders = (s: string) =>
-  Array.from(new Set([...s.matchAll(PH_RE)].map((m) => m[1])));
+const extractPH = (s: string) => Array.from(new Set([...s.matchAll(PH_RE)].map(m => m[1])));
 
-function applyVarsExpanded(s: string, expandedVars: Record<string, string>) {
-  return s.replace(PH_RE, (_, raw) => {
-    const k = toKey(raw);
-    const v = expandedVars[k];
-    return v ? v : `[${raw}]`; // never blank-replace; keep placeholder visible if empty
-  });
+function fillWithExpanded(body: string, expanded: Record<string,string>) {
+  return body.replace(PH_RE, (_, raw) => expanded[toKey(raw)] || `[${raw}]`);
 }
-
-const safeCopy = async (t: string) => { try { await navigator.clipboard.writeText(t); return true; } catch { return false; } };
 
 // ---------- UI atoms ----------
 function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
@@ -98,16 +91,14 @@ function Chip({ label, active, onClick }: { label: string; active: boolean; onCl
 }
 
 function PromptCard({
-  p, expandedVars, onCopy,
+  p, expandedVars, onCopy
 }: {
   p: Prompt;
   expandedVars: Record<string,string>;
-  onCopy: (text:string)=>void;
+  onCopy: (t: string) => void;
 }) {
-  const filled = useMemo(() => applyVarsExpanded(p.body, expandedVars), [p.body, expandedVars]);
-  const missing = useMemo(() => {
-    return extractPlaceholders(p.body).filter((ph) => !expandedVars[toKey(ph)]);
-  }, [p.body, expandedVars]);
+  const filled = useMemo(() => fillWithExpanded(p.body, expandedVars), [p.body, expandedVars]);
+  const missing = useMemo(() => extractPH(p.body).filter(ph => !expandedVars[toKey(ph)]), [p.body, expandedVars]);
 
   return (
     <motion.div layout initial={{opacity:0,y:14}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}}
@@ -117,9 +108,7 @@ function PromptCard({
           <div className="text-[11px] uppercase tracking-[0.22em] text-white/70">{p.category}</div>
           <h3 className="mt-1 font-semibold text-white/95 leading-snug">{p.title}</h3>
           {missing.length > 0 && (
-            <div className="mt-1 text-[11px] text-amber-200/90">
-              Missing: {missing.map((m) => `[${m}]`).join(", ")}
-            </div>
+            <div className="mt-1 text-[11px] text-amber-200/90">Missing: {missing.map(m => `[${m}]`).join(", ")}</div>
           )}
         </div>
         <motion.button whileTap={{ scale: 0.98 }} onClick={() => onCopy(filled)}
@@ -144,7 +133,7 @@ export default function App() {
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
 
-  // Listing Details + custom fields (store normalized keys)
+  // normalized keys
   const [vars, setVars] = useState<Record<string,string>>({
     [toKey("property type")] :"",
     [toKey("address")] :"",
@@ -168,7 +157,12 @@ export default function App() {
     [toKey("lead source")] :"",
   });
 
-  const expandedVars = useMemo(() => buildExpandedVars(vars), [vars]);
+  const expandedVars = useMemo(() => {
+    const ex = buildExpandedVars(vars);
+    // DEBUG: see what keys are available
+    console.log("[BRTS] expandedVars keys:", Object.keys(ex).sort());
+    return ex;
+  }, [vars]);
 
   const [newKey, setNewKey] = useState(""); const [newVal, setNewVal] = useState("");
   const [copied, setCopied] = useState(false);
@@ -187,11 +181,11 @@ export default function App() {
   }), [q, selectedCats, selectedTags, data]);
 
   const placeholdersInResults = useMemo(() => {
-    const s = new Set<string>(); results.forEach(p => extractPlaceholders(p.body).forEach(x => s.add(x)));
+    const s = new Set<string>(); results.forEach(p => extractPH(p.body).forEach(x => s.add(x)));
     return Array.from(s).sort();
   }, [results]);
 
-  const handleCopy = async (t: string) => { if (await safeCopy(t)) { setCopied(true); setTimeout(()=>setCopied(false),1200); } };
+  const handleCopy = async (t: string) => { try { await navigator.clipboard.writeText(t); setCopied(true); setTimeout(()=>setCopied(false),1200); } catch {} };
 
   const FIELD_KEYS = [
     "property type","address","city","neighborhood","bedrooms","bathrooms","sqft","price",
@@ -201,23 +195,21 @@ export default function App() {
 
   return (
     <div className="min-h-screen text-white relative overflow-hidden">
-      {/* Background */}
+      {/* bg */}
       <div className="pointer-events-none absolute inset-0 -z-10">
         <div className="absolute -top-24 -right-24 h-[36rem] w-[36rem] rounded-full blur-3xl opacity-30" style={{background:"radial-gradient(closest-side,#12D6DF55,transparent)"}} />
         <div className="absolute -bottom-24 -left-24 h-[36rem] w-[36rem] rounded-full blur-3xl opacity-30" style={{background:"radial-gradient(closest-side,#7C9CFF55,transparent)"}} />
         <div className="absolute inset-0 bg-[#0b0f17]/95" />
       </div>
 
-      {/* Header */}
+      {/* header */}
       <header className="max-w-7xl mx-auto px-6 pt-10 pb-6">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-3xl md:text-4xl font-extrabold leading-tight">Busy Realtors Time Saver</h1>
             <p className="text-white/70 text-sm mt-1">Interactive Prompt Finder • Premium Edition</p>
             <div className="mt-2 inline-flex items-center gap-2">
-              <span className="px-2 py-1 rounded-lg border border-white/10 bg-white/5 text-xs text-white/70">
-                Build: {BRTS_BUILD}
-              </span>
+              <span className="px-2 py-1 rounded-lg border border-white/10 bg-white/5 text-xs text-white/70">Build: {BUILD}</span>
             </div>
           </div>
           <motion.div initial={{opacity:0}} animate={{opacity:copied?1:0}}
@@ -227,7 +219,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* TOP ROW: Filters + Details */}
+      {/* top row */}
       <section className="max-w-7xl mx-auto px-6">
         <div className="grid gap-6 lg:grid-cols-[380px_1fr] items-start">
           {/* Filters */}
@@ -262,7 +254,6 @@ export default function App() {
 
           {/* Details + Search */}
           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-5">
-            {/* Search */}
             <div>
               <label className="text-sm text-white/70">Search</label>
               <input
@@ -273,7 +264,6 @@ export default function App() {
               />
             </div>
 
-            {/* Listing Details */}
             <div className="mt-5">
               <div className="text-sm font-semibold">Listing Details (auto-fill placeholders)</div>
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -296,71 +286,29 @@ export default function App() {
                 })}
               </div>
 
-              {/* Add custom field */}
               <div className="mt-4 text-xs text-white/70">Add custom field</div>
-              <div className="mt-1 grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
-                <input
-                  className="rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-2 text-sm"
-                  placeholder="placeholder name (e.g., garage spaces)"
-                  value={newKey}
-                  onChange={(e) => setNewKey(e.target.value)}
-                />
-                <input
-                  className="rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-2 text-sm"
-                  placeholder="value (e.g., 2)"
-                  value={newVal}
-                  onChange={(e) => setNewVal(e.target.value)}
-                />
-                <button
-                  onClick={() => {
-                    const k = toKey(newKey);
-                    if (!k) return;
-                    setVars((v) => ({ ...v, [k]: newVal }));
-                    setNewKey(""); setNewVal("");
-                  }}
-                  className="px-3 py-2 rounded-lg border border-white/15 hover:border-white/35 text-sm"
-                >
-                  Add
-                </button>
-              </div>
+              <AddCustom onAdd={(name, val) => {
+                const k = toKey(name);
+                if (!k) return;
+                setVars(v => ({ ...v, [k]: val }));
+              }} />
+            </div>
 
-              {/* Placeholders found */}
-              {placeholdersInResults.length > 0 && (
-                <div className="mt-4">
-                  <div className="text-[11px] uppercase tracking-[0.22em] text-white/70">
-                    Placeholders found in results
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {placeholdersInResults.map((ph) => {
-                      const ok = !!expandedVars[toKey(ph)];
-                      return (
-                        <span
-                          key={ph}
-                          className={`text-[11px] px-2 py-0.5 rounded-full border ${
-                            ok
-                              ? "border-emerald-300/30 bg-emerald-500/15 text-emerald-200"
-                              : "border-white/10 bg-white/10 text-white/80"
-                          }`}
-                          title={ok ? "Filled" : "Empty"}
-                        >
-                          [{ph}]
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+            {/* debug: show a couple of keys we care about */}
+            <div className="mt-3 text-[11px] text-white/60">
+              Debug → bedrooms: <code>{expandedVars["bedrooms"]||"—"}</code> • number of bedrooms: <code>{expandedVars["number of bedrooms"]||"—"}</code>
             </div>
           </div>
         </div>
       </section>
 
-      {/* BOTTOM ROW: Results full width */}
+      {/* results */}
       <section className="max-w-7xl mx-auto px-6 pb-12 mt-6">
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
           <AnimatePresence>
             {results.map((p) => (
-              <PromptCard key={p.id} p={p} expandedVars={expandedVars} onCopy={handleCopy} />
+              <PromptCard key={p.id} p={p} expandedVars={expandedVars}
+                onCopy={async (t) => { try { await navigator.clipboard.writeText(t); setCopied(true); setTimeout(()=>setCopied(false),1200);} catch {} }} />
             ))}
           </AnimatePresence>
         </div>
@@ -376,13 +324,28 @@ export default function App() {
         )}
       </section>
 
-      {/* Footer */}
       <footer className="max-w-7xl mx-auto px-6 py-10 text-xs text-white/60">
         <div className="flex items-center justify-between">
           <span>© {new Date().getFullYear()} Hate Writing — Busy Realtors Time Saver</span>
           <span>Built for speed. Zero fluff.</span>
         </div>
       </footer>
+    </div>
+  );
+}
+
+// small helper component
+function AddCustom({ onAdd }: { onAdd: (name: string, val: string) => void }) {
+  const [name, setName] = useState("");
+  const [val, setVal] = useState("");
+  return (
+    <div className="mt-1 grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
+      <input className="rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-2 text-sm"
+        placeholder="placeholder name (e.g., garage spaces)" value={name} onChange={e=>setName(e.target.value)} />
+      <input className="rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-2 text-sm"
+        placeholder="value (e.g., 2)" value={val} onChange={e=>setVal(e.target.value)} />
+      <button onClick={()=>{ onAdd(name, val); setName(""); setVal(""); }}
+        className="px-3 py-2 rounded-lg border border-white/15 hover:border-white/35 text-sm">Add</button>
     </div>
   );
 }
