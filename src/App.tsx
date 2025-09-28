@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import prompts from "./data/prompts.json";
 
+// ---------- Types ----------
 export type Prompt = {
   id: string;
   title: string;
@@ -10,6 +11,7 @@ export type Prompt = {
   body: string;
 };
 
+// ---------- Static filters ----------
 const CATEGORIES: Prompt["category"][] = [
   "Listings", "Tone", "Social", "Ads", "Email", "Client", "SEO", "Business"
 ];
@@ -17,15 +19,15 @@ const CATEGORIES: Prompt["category"][] = [
 const KEYWORD_GROUPS: Record<string, string[]> = {
   "Property Type": ["condo", "single-family", "townhome", "multifamily", "new-build"],
   Audience: [
-    "luxury", "family", "investor", "first-time", "downsizer",
-    "young-professional", "vacation", "eco", "tech", "relocation"
+    "luxury","family","investor","first-time","downsizer",
+    "young-professional","vacation","eco","tech","relocation"
   ],
-  Feature: ["waterfront", "garden", "pool", "smart-home", "garage", "views", "amenities", "finishes"],
-  Intent: ["retargeting", "lead-gen", "open-house", "price", "seo", "brand"],
-  Channel: ["mls", "website", "instagram", "facebook", "tiktok", "google", "email"],
+  Feature: ["waterfront","garden","pool","smart-home","garage","views","amenities","finishes"],
+  Intent: ["retargeting","lead-gen","open-house","price","seo","brand"],
+  Channel: ["mls","website","instagram","facebook","tiktok","google","email"],
 };
 
-// --- Helpers for placeholder replacement ---
+// ---------- Placeholder helpers ----------
 const PLACEHOLDER_RE = /\[(.+?)\]/g;
 
 function extractPlaceholders(text: string): string[] {
@@ -33,20 +35,14 @@ function extractPlaceholders(text: string): string[] {
   for (const m of text.matchAll(PLACEHOLDER_RE)) out.add(m[1]);
   return [...out];
 }
-
 function applyVars(body: string, vars: Record<string, string>) {
-  return body.replace(PLACEHOLDER_RE, (_, key) => vars[key] ?? `[${key}]`);
+  return body.replace(PLACEHOLDER_RE, (_, key) => (vars[key] ?? `[${key}]`));
 }
-
 async function safeCopy(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
+  try { await navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
+// ---------- Small UI bits ----------
 function Chip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <motion.button
@@ -64,14 +60,8 @@ function Chip({ label, active, onClick }: { label: string; active: boolean; onCl
 }
 
 function PromptCard({
-  p,
-  vars,
-  onCopy,
-}: {
-  p: Prompt;
-  vars: Record<string, string>;
-  onCopy: (text: string) => void;
-}) {
+  p, vars, onCopy
+}: { p: Prompt; vars: Record<string, string>; onCopy: (text: string) => void }) {
   const filled = useMemo(() => applyVars(p.body, vars), [p.body, vars]);
   const missing = useMemo(() => {
     const need = extractPlaceholders(p.body);
@@ -80,10 +70,7 @@ function PromptCard({
 
   return (
     <motion.div
-      layout
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -8 }}
+      layout initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
       className="relative rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-[0_30px_120px_rgba(18,214,223,.12)]"
     >
       <div className="flex items-start justify-between gap-4">
@@ -108,25 +95,21 @@ function PromptCard({
       <div className="mt-3 text-sm text-white/85 whitespace-pre-wrap leading-relaxed">{filled}</div>
       <div className="mt-3 flex flex-wrap gap-1">
         {(p.keywords || []).map((k) => (
-          <span
-            key={k}
-            className="text-[11px] px-2 py-0.5 rounded-full border border-white/10 bg-white/10 text-white/80"
-          >
-            #{k}
-          </span>
+          <span key={k} className="text-[11px] px-2 py-0.5 rounded-full border border-white/10 bg-white/10 text-white/80">#{k}</span>
         ))}
       </div>
     </motion.div>
   );
 }
 
+// ---------- Main App ----------
 export default function App() {
   const [q, setQ] = useState("");
   const [data] = useState<Prompt[]>(prompts as Prompt[]);
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
 
-  // Common fields + users can add more
+  // Predefined “Listing Details” + user custom fields
   const [vars, setVars] = useState<Record<string, string>>({
     "property type": "",
     address: "",
@@ -136,6 +119,10 @@ export default function App() {
     bathrooms: "",
     sqft: "",
     price: "",
+    "hoa fee": "",
+    "year built": "",
+    "lot size": "",
+    "school district": "",
     "key features": "",
     "neighborhood characteristics": "",
     "lifestyle benefits": "",
@@ -144,25 +131,15 @@ export default function App() {
     "start time": "",
     "end time": "",
     "lead source": "",
-    "hoa fee": "",
-    "year built": "",
-    "lot size": "",
-    "school district": "",
   });
-
   const [newKey, setNewKey] = useState("");
   const [newVal, setNewVal] = useState("");
   const [copied, setCopied] = useState(false);
 
   const toggleSet = (
-    setter: React.Dispatch<React.SetStateAction<Set<string>>>,
-    value: string
+    setter: React.Dispatch<React.SetStateAction<Set<string>>>, value: string
   ) => {
-    setter((prev) => {
-      const copy = new Set(prev);
-      copy.has(value) ? copy.delete(value) : copy.add(value);
-      return copy;
-    });
+    setter(prev => { const s = new Set(prev); s.has(value) ? s.delete(value) : s.add(value); return s; });
   };
 
   const results = useMemo(() => {
@@ -178,31 +155,24 @@ export default function App() {
   }, [q, selectedCats, selectedTags, data]);
 
   const allPlaceholdersInResults = useMemo(() => {
-    const set = new Set<string>();
-    results.forEach((p) => extractPlaceholders(p.body).forEach((x) => set.add(x)));
-    return Array.from(set).sort((a, b) => a.localeCompare(b));
+    const s = new Set<string>();
+    results.forEach(p => extractPlaceholders(p.body).forEach(ph => s.add(ph)));
+    return Array.from(s).sort((a,b)=>a.localeCompare(b));
   }, [results]);
 
   const handleCopy = async (text: string) => {
     const ok = await safeCopy(text);
-    if (ok) {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    }
+    if (ok) { setCopied(true); setTimeout(() => setCopied(false), 1200); }
   };
 
   return (
     <div className="min-h-screen text-white relative overflow-hidden">
       {/* Background */}
       <div className="pointer-events-none absolute inset-0 -z-10">
-        <div
-          className="absolute -top-24 -right-24 h-[36rem] w-[36rem] rounded-full blur-3xl opacity-30"
-          style={{ background: "radial-gradient(closest-side, #12D6DF55, transparent)" }}
-        />
-        <div
-          className="absolute -bottom-24 -left-24 h-[36rem] w-[36rem] rounded-full blur-3xl opacity-30"
-          style={{ background: "radial-gradient(closest-side, #7C9CFF55, transparent)" }}
-        />
+        <div className="absolute -top-24 -right-24 h-[36rem] w-[36rem] rounded-full blur-3xl opacity-30"
+             style={{ background: "radial-gradient(closest-side, #12D6DF55, transparent)" }} />
+        <div className="absolute -bottom-24 -left-24 h-[36rem] w-[36rem] rounded-full blur-3xl opacity-30"
+             style={{ background: "radial-gradient(closest-side, #7C9CFF55, transparent)" }} />
         <div className="absolute inset-0 bg-[#0b0f17]/95" />
       </div>
 
@@ -210,9 +180,7 @@ export default function App() {
       <header className="max-w-7xl mx-auto px-6 pt-10 pb-8">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-3xl md:text-4xl font-extrabold leading-tight">
-              Busy Realtors Time Saviour
-            </h1>
+            <h1 className="text-3xl md:text-4xl font-extrabold leading-tight">Busy Realtors Time Saver</h1>
             <p className="text-white/70 text-sm mt-1">Interactive Prompt Finder • Premium Edition</p>
           </div>
           <motion.div
@@ -234,44 +202,28 @@ export default function App() {
             />
           </div>
 
-          {/* Listing Details Panel */}
+          {/* Listing Details / Custom Fields */}
           <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-4">
             <div className="text-sm font-semibold">Listing Details (auto-fill placeholders)</div>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {[
-                "property type",
-                "address",
-                "city",
-                "neighborhood",
-                "bedrooms",
-                "bathrooms",
-                "sqft",
-                "price",
-                "hoa fee",
-                "year built",
-                "lot size",
-                "school district",
-                "key features",
-                "neighborhood characteristics",
-                "lifestyle benefits",
-                "word count",
-                "date",
-                "start time",
-                "end time",
-                "lead source",
+                "property type","address","city","neighborhood","bedrooms","bathrooms","sqft","price",
+                "hoa fee","year built","lot size","school district","key features",
+                "neighborhood characteristics","lifestyle benefits",
+                "word count","date","start time","end time","lead source"
               ].map((k) => (
                 <div key={k} className="flex items-center gap-2">
                   <span className="text-[11px] text-white/60 min-w-[110px]">[{k}]</span>
                   <input
                     className="flex-1 rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-1 text-sm"
                     value={vars[k] ?? ""}
-                    onChange={(e) => setVars((prev) => ({ ...prev, [k]: e.target.value }))}
+                    onChange={(e) => setVars(prev => ({ ...prev, [k]: e.target.value }))}
                   />
                 </div>
               ))}
             </div>
 
-            {/* Custom fields */}
+            {/* Add custom field */}
             <div className="mt-3 text-xs text-white/70">Add custom field</div>
             <div className="mt-1 flex gap-2">
               <input
@@ -290,9 +242,8 @@ export default function App() {
                 onClick={() => {
                   const key = newKey.trim();
                   if (!key) return;
-                  setVars((v) => ({ ...v, [key]: newVal }));
-                  setNewKey("");
-                  setNewVal("");
+                  setVars(v => ({ ...v, [key]: newVal }));
+                  setNewKey(""); setNewVal("");
                 }}
                 className="px-3 py-1.5 rounded-lg border border-white/15 hover:border-white/35 text-sm"
               >
@@ -300,7 +251,7 @@ export default function App() {
               </button>
             </div>
 
-            {/* Quick view of needed placeholders in current results */}
+            {/* Show placeholders detected in current results */}
             {allPlaceholdersInResults.length > 0 && (
               <div className="mt-3">
                 <div className="text-[11px] uppercase tracking-[0.22em] text-white/70">
@@ -330,7 +281,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Main */}
+      {/* Main layout */}
       <section className="max-w-7xl mx-auto px-6 grid xl:grid-cols-[300px_1fr] gap-6 pb-12">
         {/* Sidebar Filters */}
         <aside className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-5 sticky top-6 self-start">
@@ -355,11 +306,7 @@ export default function App() {
             ))}
           </div>
           <button
-            onClick={() => {
-              setSelectedCats(new Set());
-              setSelectedTags(new Set());
-              setQ("");
-            }}
+            onClick={() => { setSelectedCats(new Set()); setSelectedTags(new Set()); setQ(""); }}
             className="mt-6 w-full text-center px-4 py-2 rounded-xl border border-white/15 hover:border-white/35 backdrop-blur bg-white/5"
           >
             Clear filters
@@ -391,7 +338,7 @@ export default function App() {
       {/* Footer */}
       <footer className="max-w-7xl mx-auto px-6 py-10 text-xs text-white/60">
         <div className="flex items-center justify-between">
-          <span>© {new Date().getFullYear()} Hate Writing — Busy Realtors Time Saviour</span>
+          <span>© {new Date().getFullYear()} Hate Writing — Busy Realtors Time Saver</span>
           <span>Built for speed. Zero fluff.</span>
         </div>
       </footer>
