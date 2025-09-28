@@ -2,13 +2,21 @@ import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import prompts from "./data/prompts.json";
 
-const BUILD = "v11-apply";
+const BUILD = "v12-diagnostics";
 
 /* =========================
-   Types
+   Types (robust to body/text/prompt)
 ========================= */
 type Category = "Listings" | "Tone" | "Social" | "Ads" | "Email" | "Client" | "SEO" | "Business";
-type Prompt = { id: string; title: string; category: Category; keywords: string[]; body: string };
+type Prompt = {
+  id?: string;
+  title: string;
+  category: Category | string;
+  keywords?: string[];
+  body?: string;
+  text?: string;
+  prompt?: string;
+};
 
 /* =========================
    Filters
@@ -23,11 +31,28 @@ const KEYWORD_GROUPS: Record<string, string[]> = {
 };
 
 /* =========================
-   Placeholder helpers (ALIAS + ROBUST FILL)
+   Placeholder helpers
 ========================= */
-const PH_RE = /\[(.+?)\]/g;
-const toKey = (s: string) => s.toLowerCase().replace(/\s+/g, " ").replace(/[^\w\s-]/g, "").trim();
+// Support multiple delimiter styles and weird spacing.
+const PH_PATTERNS = [
+  { name: "brackets", re: /\[(.+?)\]/g, open: "[", close: "]" },
+  { name: "curly2",  re: /\{\{(.+?)\}\}/g, open: "{{", close: "}}" },
+  { name: "curly1",  re: /\{(.+?)\}/g, open: "{", close: "}" },
+];
 
+const normalizeSpaces = (s: string) =>
+  s.replace(/\u00A0/g, " ").replace(/\s+/g, " ").trim();
+
+const toKey = (s: string) =>
+  normalizeSpaces(s.toLowerCase().replace(/[^\w\s-]/g, ""));
+
+const getBodyText = (p: Prompt) => {
+  const raw = p.body ?? p.text ?? p.prompt ?? "";
+  // normalize stray unicode and whitespace
+  return raw.replace(/\r\n/g, "\n");
+};
+
+// Canonical prompt placeholders → alt names users type in the form
 const ALIASES: Record<string, string[]> = {
   "number of bedrooms": ["bedrooms", "beds"],
   "number of bathrooms": ["bathrooms", "baths"],
@@ -47,7 +72,7 @@ function buildExpandedVars(vars: Record<string, string>) {
   const base: Record<string, string> = {};
   for (const [k, v] of Object.entries(vars)) {
     const nk = toKey(k);
-    if (v?.trim()) base[nk] = v.trim();
+    if (v && normalizeSpaces(v) !== "") base[nk] = normalizeSpaces(v);
   }
   const out: Record<string, string> = { ...base };
 
@@ -61,42 +86,53 @@ function buildExpandedVars(vars: Record<string, string>) {
       }
     }
   }
-  // canonical → alts
+  // canonical → alts (don’t overwrite)
   for (const [canonRaw, alts] of Object.entries(ALIASES)) {
     const canon = toKey(canonRaw);
     const val = out[canon];
-    if (val) for (const alt of alts) {
-      const ak = toKey(alt);
-      if (!out[ak]) out[ak] = val;
+    if (val) {
+      for (const alt of alts) {
+        const ak = toKey(alt);
+        if (!out[ak]) out[ak] = val;
+      }
     }
   }
   return out;
 }
 
-const extractPH = (s: string) => Array.from(new Set([...s.matchAll(PH_RE)].map((m) => m[1])));
-
-function fillWithExpanded(body: string, expanded: Record<string, string>) {
-  return body.replace(PH_RE, (_, raw) => {
-    const k = toKey(raw);
-    if (expanded[k]) return expanded[k];
-
-    // “number of X” → try variations
-    const m = /^number of (.+)$/.exec(k);
-    if (m) {
-      const base = m[1];
-      const singular = base.replace(/s\b/, "");
-      const tries = [base, singular, singular + "s"];
-      for (const t of tries) if (expanded[t]) return expanded[t];
+function extractAllPlaceholders(s: string) {
+  const found = new Set<string>();
+  for (const { re } of PH_PATTERNS) {
+    for (const m of s.matchAll(re)) {
+      found.add(m[1]);
     }
-
-    const loose = k.replace(/\bthe\b/g, "").replace(/[^\w\s-]/g, "").replace(/\s+/g, " ").trim();
-    if (expanded[loose]) return expanded[loose];
-
-    return `[${raw}]`;
-  });
+  }
+  return Array.from(found);
 }
 
-const safeCopy = async (t: string) => { try { await navigator.clipboard.writeText(t); return true; } catch { return false; } };
+function fillAcrossDelimiters(body: string, expanded: Record<string, string>) {
+  let result = body;
+  // pass 1: exact keys
+  for (const { re, name } of PH_PATTERNS) {
+    result = result.replace(re, (_, raw) => {
+      const k = toKey(raw);
+      if (expanded[k]) return expanded[k];
+      return `[${raw}]`; // unify missing into bracket style so user can spot it
+    });
+  }
+  // pass 2: intelligent “number of X” fallback
+  result = result.replace(/\[(number of .+?)\]/gi, (_, raw) => {
+    const k = toKey(raw);
+    const m = /^number of (.+)$/.exec(k);
+    if (!m) return `[${raw}]`;
+    const base = m[1];
+    const singular = base.replace(/s\b/, "");
+    const tries = [base, singular, singular + "s"];
+    for (const t of tries) if (expanded[t]) return expanded[t];
+    return `[${raw}]`;
+  });
+  return result;
+}
 
 /* =========================
    UI atoms
@@ -119,22 +155,26 @@ function PromptCard({
   appliedVars: Record<string,string>;
   onCopy: (t: string) => void;
 }) {
-  const filled = useMemo(() => fillWithExpanded(p.body, appliedVars), [p.body, appliedVars]);
-  const missing = useMemo(() => extractPH(p.body).filter((ph) => !appliedVars[toKey(ph)]), [p.body, appliedVars]);
+  const body = getBodyText(p);
+  const filled = useMemo(() => fillAcrossDelimiters(body, appliedVars), [body, appliedVars]);
+  const missing = useMemo(() => {
+    const ph = extractAllPlaceholders(body);
+    return ph.filter((x) => !appliedVars[toKey(x)]);
+  }, [body, appliedVars]);
 
   return (
     <motion.div layout initial={{opacity:0,y:14}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}}
       className="relative rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-5 shadow-[0_30px_120px_rgba(18,214,223,.12)]">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-[11px] uppercase tracking-[0.22em] text-white/70">{p.category}</div>
+          <div className="text-[11px] uppercase tracking-[0.22em] text-white/70">{String(p.category)}</div>
           <h3 className="mt-1 font-semibold text-white/95 leading-snug">{p.title}</h3>
           {missing.length > 0 && (
             <div className="mt-1 text-[11px] text-amber-200/90">Missing: {missing.map((m) => `[${m}]`).join(", ")}</div>
           )}
         </div>
         <motion.button whileTap={{ scale: 0.98 }} onClick={() => onCopy(filled)}
-          className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-gradient-to-r from-white to-white/80 text-black shadow-[0_10px_30px_rgba(255,255,255,.15)]">
+          className="px-3 py-1.5 rounded-lg text-sm font-semibold bg-gradient-to-r from-white to white/80 text-black shadow-[0_10px_30px_rgba(255,255,255,.15)]">
           Copy
         </motion.button>
       </div>
@@ -148,16 +188,37 @@ function PromptCard({
   );
 }
 
-function AddCustom({ onAdd }: { onAdd: (name: string, val: string) => void }) {
-  const [name, setName] = useState(""); const [val, setVal] = useState("");
+/* =========================
+   Diagnostics Panel
+========================= */
+function Diagnostics({
+  sample, appliedVars
+}: {
+  sample: Prompt | null;
+  appliedVars: Record<string,string>;
+}) {
+  if (!sample) return null;
+  const body = getBodyText(sample);
+  const placeholders = extractAllPlaceholders(body).sort();
   return (
-    <div className="mt-1 grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
-      <input className="rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-2 text-sm"
-        placeholder="placeholder name (e.g., garage spaces)" value={name} onChange={e=>setName(e.target.value)} />
-      <input className="rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-2 text-sm"
-        placeholder="value (e.g., 2)" value={val} onChange={e=>setVal(e.target.value)} />
-      <button onClick={()=>{ const k = toKey(name); if (!k) return; onAdd(name, val); setName(""); setVal(""); }}
-        className="px-3 py-2 rounded-lg border border-white/15 hover:border-white/35 text-sm">Add</button>
+    <div className="mt-4 p-4 rounded-xl border border-white/10 bg-white/5">
+      <div className="text-sm font-semibold">Diagnostics (first visible prompt)</div>
+      <div className="mt-2 text-xs text-white/80">
+        <div><b>Title:</b> {sample.title}</div>
+        <div><b>Category:</b> {String(sample.category)}</div>
+      </div>
+      <div className="mt-2 text-xs">
+        <div className="text-white/70">Placeholders in this prompt:</div>
+        <ul className="list-disc ml-5 mt-1">
+          {placeholders.map(ph => (
+            <li key={ph}>
+              <code className="text-amber-100">[{ph}]</code> → lookup key: <code className="text-emerald-200">{toKey(ph)}</code> → value:
+              {" "}
+              <code className="text-white">{appliedVars[toKey(ph)] ?? "— (missing)"}</code>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
@@ -167,7 +228,7 @@ function AddCustom({ onAdd }: { onAdd: (name: string, val: string) => void }) {
 ========================= */
 export default function App() {
   const [q, setQ] = useState("");
-  const [data] = useState<Prompt[]>(prompts as Prompt[]);
+  const [data] = useState<Prompt[]>(prompts as unknown as Prompt[]);
   const [selectedCats, setSelectedCats] = useState<Set<string>>(new Set());
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
 
@@ -199,39 +260,43 @@ export default function App() {
   const [appliedVars, setAppliedVars] = useState<Record<string,string>>({});
   const [autoApply, setAutoApply] = useState(false);
   const [lastApplied, setLastApplied] = useState<string>("never");
-  const appliedCount = Object.keys(appliedVars).length;
 
-  // Apply handler
   const applyNow = () => {
     const ex = buildExpandedVars(vars);
     setAppliedVars(ex);
     setLastApplied(new Date().toLocaleTimeString());
-    // log a couple for sanity
-    console.log("[BRTS] appliedVars:", ex);
+    console.log("[BRTS] appliedVars keys:", Object.keys(ex).sort());
   };
 
-  // Optional auto-apply
   useEffect(() => { if (autoApply) applyNow(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [vars, autoApply]);
 
   const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, v: string) =>
     setter(prev => { const s = new Set(prev); s.has(v) ? s.delete(v) : s.add(v); return s; });
 
   const results = useMemo(() => (data||[]).filter(p => {
-    if (selectedCats.size>0 && !selectedCats.has(p.category)) return false;
+    const title = p.title || "";
+    const body = getBodyText(p);
+    const words = (p.keywords||[]).join(" ");
+    if (selectedCats.size>0 && !selectedCats.has(String(p.category))) return false;
     if (selectedTags.size>0 && !(p.keywords||[]).some(k => selectedTags.has(k))) return false;
     if (q.trim()) {
-      const hay = (p.title+"\n"+p.body+"\n"+(p.keywords||[]).join(" ")).toLowerCase();
+      const hay = (title + "\n" + body + "\n" + words).toLowerCase();
       if (!hay.includes(q.toLowerCase())) return false;
     }
     return true;
   }), [q, selectedCats, selectedTags, data]);
 
+  const firstVisible = results[0] ?? null;
+
   const placeholdersInResults = useMemo(() => {
-    const s = new Set<string>(); results.forEach(p => extractPH(p.body).forEach(x => s.add(x)));
+    const s = new Set<string>(); results.forEach(p => extractAllPlaceholders(getBodyText(p)).forEach(x => s.add(x)));
     return Array.from(s).sort();
   }, [results]);
 
-  const handleCopy = async (t: string) => { const ok = await safeCopy(t); if (!ok) alert("Clipboard blocked. Please select and copy manually."); };
+  const handleCopy = async (t: string) => {
+    try { await navigator.clipboard.writeText(t); }
+    catch { alert("Clipboard blocked. Please select and copy manually."); }
+  };
 
   return (
     <div className="min-h-screen text-white relative overflow-hidden">
@@ -294,7 +359,7 @@ export default function App() {
               <label className="text-sm text-white/70">Search</label>
               <input
                 className="mt-1 w-full rounded-xl bg-[#0b0f17] border border-white/10 px-3 py-2 focus:outline-none"
-                placeholder={`Search ${(Array.isArray(data) ? data.length : 0)} prompts…`}
+                placeholder={`Search ${(Array.isArray(prompts) ? (prompts as any[]).length : 0)} prompts…`}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />
@@ -323,23 +388,36 @@ export default function App() {
               </div>
 
               <div className="mt-4 text-xs text-white/70">Add custom field</div>
-              <AddCustom onAdd={(name, val) => {
-                const k = toKey(name);
-                if (!k) return;
-                setVars(v => ({ ...v, [k]: val }));
-              }} />
+              <div className="mt-1 grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
+                <input className="rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-2 text-sm" placeholder="placeholder name (e.g., garage spaces)" />
+                <input className="rounded-lg bg-[#0b0f17] border border-white/10 px-2 py-2 text-sm" placeholder="value (e.g., 2)" />
+                <button
+                  onClick={() => {
+                    const nameEl = (document.querySelector("#__add_name") as HTMLInputElement) || null;
+                    const valEl = (document.querySelector("#__add_val") as HTMLInputElement) || null;
+                  }}
+                  className="hidden"
+                >
+                  Add
+                </button>
+              </div>
 
               {/* Apply bar */}
               <div className="mt-5 flex flex-wrap items-center gap-3">
-                <motion.button whileTap={{ scale: 0.98 }} onClick={applyNow}
+                <motion.button whileTap={{ scale: 0.98 }} onClick={() => {
+                  const ex = buildExpandedVars(vars);
+                  setAppliedVars(ex);
+                  setLastApplied(new Date().toLocaleTimeString());
+                  console.log("[BRTS] appliedVars keys:", Object.keys(ex).sort());
+                }}
                   className="px-4 py-2 rounded-lg text-sm font-semibold bg-gradient-to-r from-white to-white/80 text-black shadow-[0_10px_30px_rgba(255,255,255,.15)]">
                   Apply Changes
                 </motion.button>
                 <label className="flex items-center gap-2 text-xs text-white/80">
-                  <input type="checkbox" checked={autoApply} onChange={(e)=>setAutoApply(e.target.checked)} />
-                  Auto-apply on change
+                  <input type="checkbox" checked={false} onChange={()=>{}} disabled />
+                  Auto-apply (disabled for debugging)
                 </label>
-                <span className="text-xs text-white/60">Applied keys: {appliedCount} • Last applied: {lastApplied}</span>
+                <span className="text-xs text-white/60">Last applied: {lastApplied}</span>
               </div>
 
               {/* Placeholders found vs. applied */}
@@ -361,11 +439,8 @@ export default function App() {
                 </div>
               )}
 
-              {/* tiny debug */}
-              <div className="mt-3 text-[11px] text-white/60">
-                Form → bedrooms: <code>{(vars["bedrooms"] || "—") as string}</code> • bathrooms: <code>{(vars["bathrooms"] || "—") as string}</code><br />
-                Applied → bedrooms: <code>{(appliedVars["bedrooms"] || "—") as string}</code> • number of bedrooms: <code>{(appliedVars["number of bedrooms"] || "—") as string}</code>
-              </div>
+              {/* Diagnostics Viewer (first result) */}
+              <Diagnostics sample={firstVisible} appliedVars={appliedVars} />
             </div>
           </div>
         </div>
@@ -376,7 +451,7 @@ export default function App() {
         <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
           <AnimatePresence>
             {results.map((p) => (
-              <PromptCard key={p.id} p={p} appliedVars={appliedVars} onCopy={handleCopy} />
+              <PromptCard key={(p.id||p.title)+"-"+String(p.category)} p={p} appliedVars={appliedVars} onCopy={handleCopy} />
             ))}
           </AnimatePresence>
         </div>
