@@ -379,7 +379,7 @@ index eea2642a60ab1e9928b805d690a9fa8d613b23df..d376da97472a6651e670d0e59f66721d
 -        <div className="__sub">Interactive Prompt Finder — Premium layout</div>
 +        <span className="__eyebrow">Premium Prompt Toolkit</span>
 +        <h1 className="__title">
-+          Busy Realtors' Time Saver
++          The Busy Realtors' Time Saver
 +          <span className="__titleNote">
 +            (For those who value time and optimize profit)
 +          </span>
