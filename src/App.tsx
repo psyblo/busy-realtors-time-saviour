@@ -1,9 +1,9 @@
  (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
 diff --git a/src/App.tsx b/src/App.tsx
-index f1674e5c78ed1af33a1857cb6d1686fda2751a82..7113f377be69a39e68989f58b85c6f534b6d957e 100644
+index f1674e5c78ed1af33a1857cb6d1686fda2751a82..234d075a7fe0a3c90203544fcae01084889f8475 100644
 --- a/src/App.tsx
 +++ b/src/App.tsx
-@@ -1,587 +1,427 @@
+@@ -1,587 +1,431 @@
 - (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
 -diff --git a/src/App.tsx b/src/App.tsx
 -index eea2642a60ab1e9928b805d690a9fa8d613b23df..d376da97472a6651e670d0e59f66721d93d92cd4 100644
@@ -591,10 +591,10 @@ index f1674e5c78ed1af33a1857cb6d1686fda2751a82..7113f377be69a39e68989f58b85c6f53
 - 
 -EOF
 -)
-+ import React, { useMemo, useState } from "react";
++import { useMemo, useState } from "react";
++import rawPrompts from "./data/prompts.json";
 +import "./index.css";
 +
-+// ---------- Types ----------
 +type Prompt = {
 +  id: string;
 +  title: string;
@@ -603,24 +603,12 @@ index f1674e5c78ed1af33a1857cb6d1686fda2751a82..7113f377be69a39e68989f58b85c6f53
 +  body: string;
 +};
 +
-+// ---------- Data import (Vite JSON import) ----------
-+import rawPrompts from "./data/prompts.json";
-+
-+// ---------- Helpers ----------
-+const toKey = (s: string) =>
-+  s
-+    .toLowerCase()
-+    .replace(/\u00A0/g, " ")
-+    .replace(/[^\w\s-]/g, "")
-+    .replace(/\s+/g, " ")
-+    .trim();
-+
-+const PH_PATTERNS: RegExp[] = [
-+  /\[(.+?)\]/g, // [city]
-+  /\{\{(.+?)\}\}/g, // {{city}}
-+  /\{(.+?)\}/g, // {city}
-+  /<(.+?)>/g, // <city>
-+  /\((.+?)\)/g, // (city)
++const PLACEHOLDER_PATTERNS: RegExp[] = [
++  /\[(.+?)\]/g,
++  /\{\{(.+?)\}\}/g,
++  /\{(.+?)\}/g,
++  /<(.+?)>/g,
++  /\((.+?)\)/g,
 +];
 +
 +const ALIASES: Record<string, string[]> = {
@@ -636,62 +624,78 @@ index f1674e5c78ed1af33a1857cb6d1686fda2751a82..7113f377be69a39e68989f58b85c6f53
 +  "hoa fees": ["hoa fee", "hoa"],
 +};
 +
++function toKey(value: string) {
++  return value
++    .toLowerCase()
++    .replace(/\u00a0/g, " ")
++    .replace(/[^\w\s-]/g, "")
++    .replace(/\s+/g, " ")
++    .trim();
++}
++
 +function buildExpandedVars(vars: Record<string, string>) {
 +  const base: Record<string, string> = {};
-+  for (const k of Object.keys(vars)) {
-+    const v = String(vars[k] ?? "").trim();
-+    if (!v) continue;
-+    base[toKey(k)] = v;
++  for (const key of Object.keys(vars)) {
++    const value = String(vars[key] ?? "").trim();
++    if (!value) continue;
++    base[toKey(key)] = value;
 +  }
-+  // alias -> canon
-+  for (const canon of Object.keys(ALIASES)) {
-+    const ck = toKey(canon);
-+    if (!base[ck]) {
-+      for (const alt of ALIASES[canon]) {
-+        const v = base[toKey(alt)];
-+        if (v) {
-+          base[ck] = v;
++
++  for (const canonical of Object.keys(ALIASES)) {
++    const canonicalKey = toKey(canonical);
++    if (!base[canonicalKey]) {
++      for (const alias of ALIASES[canonical]) {
++        const aliasValue = base[toKey(alias)];
++        if (aliasValue) {
++          base[canonicalKey] = aliasValue;
 +          break;
 +        }
 +      }
 +    }
 +  }
-+  // canon -> alias
-+  for (const canon of Object.keys(ALIASES)) {
-+    const ck = toKey(canon);
-+    const v = base[ck];
-+    if (v) {
-+      for (const alt of ALIASES[canon]) {
-+        const ak = toKey(alt);
-+        if (!base[ak]) base[ak] = v;
-+      }
++
++  for (const canonical of Object.keys(ALIASES)) {
++    const canonicalKey = toKey(canonical);
++    const canonicalValue = base[canonicalKey];
++    if (!canonicalValue) continue;
++    for (const alias of ALIASES[canonical]) {
++      const aliasKey = toKey(alias);
++      if (!base[aliasKey]) base[aliasKey] = canonicalValue;
 +    }
 +  }
++
 +  return base;
 +}
 +
 +function fillAcrossDelimiters(body: string, expanded: Record<string, string>) {
-+  let out = body;
-+  for (const re of PH_PATTERNS) {
-+    out = out.replace(re, (_, raw) => {
-+      const k = toKey(raw);
-+      return expanded[k] ? expanded[k] : `[${raw}]`;
++  let next = body;
++  for (const pattern of PLACEHOLDER_PATTERNS) {
++    next = next.replace(pattern, (_, raw: string) => {
++      const key = toKey(raw);
++      return expanded[key] ? expanded[key] : `[${raw}]`;
 +    });
 +  }
-+  // Special case: [number of X]
-+  out = out.replace(/\[(number of .+?)\]/gi, (_, raw) => {
-+    const m = /^number of (.+)$/i.exec(raw);
-+    if (!m) return `[${raw}]`;
-+    const base = toKey(m[1]);
-+    const tries = [base, base.replace(/s\b/, ""), base.replace(/s\b/, "") + "s"];
-+    for (const t of tries) if (expanded[t]) return expanded[t];
++
++  next = next.replace(/\[(number of .+?)\]/gi, (_, raw: string) => {
++    const match = /^number of (.+)$/i.exec(raw);
++    if (!match) return `[${raw}]`;
++    const baseKey = toKey(match[1]);
++    const variations = [
++      baseKey,
++      baseKey.replace(/s\b/, ""),
++      baseKey.replace(/s\b/, "") + "s",
++    ];
++    for (const candidate of variations) {
++      if (expanded[candidate]) return expanded[candidate];
++    }
 +    return `[${raw}]`;
 +  });
-+  return out;
++
++  return next;
 +}
 +
-+function escapeHtml(s: string) {
-+  return s
++function escapeHtml(value: string) {
++  return value
 +    .replace(/&/g, "&amp;")
 +    .replace(/</g, "&lt;")
 +    .replace(/>/g, "&gt;")
@@ -705,37 +709,36 @@ index f1674e5c78ed1af33a1857cb6d1686fda2751a82..7113f377be69a39e68989f58b85c6f53
 +      return true;
 +    }
 +  } catch {}
++
 +  try {
-+    const ta = document.createElement("textarea");
-+    ta.value = text;
-+    ta.setAttribute("readonly", "");
-+    ta.style.position = "fixed";
-+    ta.style.top = "-9999px";
-+    document.body.appendChild(ta);
-+    ta.focus();
-+    ta.select();
++    const textarea = document.createElement("textarea");
++    textarea.value = text;
++    textarea.setAttribute("readonly", "");
++    textarea.style.position = "fixed";
++    textarea.style.top = "-9999px";
++    document.body.appendChild(textarea);
++    textarea.focus();
++    textarea.select();
 +    const ok = document.execCommand("copy");
-+    document.body.removeChild(ta);
++    document.body.removeChild(textarea);
 +    return ok;
 +  } catch {
 +    return false;
 +  }
 +}
 +
-+// ---------- Small UI atoms ----------
-+function Chip({
-+  label,
-+  active,
-+  onClick,
-+}: {
++type ChipProps = {
 +  label: string;
 +  active: boolean;
 +  onClick: () => void;
-+}) {
++};
++
++function Chip({ label, active, onClick }: ChipProps) {
 +  return (
 +    <button
++      type="button"
 +      onClick={onClick}
-+      className={`__chip ${active ? "__chip--active" : ""}`}
++      className={`chip${active ? " chip--active" : ""}`}
 +      title={label}
 +    >
 +      {label}
@@ -743,42 +746,40 @@ index f1674e5c78ed1af33a1857cb6d1686fda2751a82..7113f377be69a39e68989f58b85c6f53
 +  );
 +}
 +
-+// ---------- Prompt Card ----------
-+function PromptCard({
-+  prompt,
-+  vars,
-+}: {
++type PromptCardProps = {
 +  prompt: Prompt;
 +  vars: Record<string, string>;
-+}) {
++};
++
++function PromptCard({ prompt, vars }: PromptCardProps) {
 +  const [filled, setFilled] = useState<string | null>(null);
 +  const expanded = useMemo(() => buildExpandedVars(vars), [vars]);
-+  const body = prompt.body;
-+  const current = filled ?? body;
++  const currentBody = filled ?? prompt.body;
 +
 +  return (
-+    <div className="__pCard">
-+      <div className="__pHead">
++    <article className="prompt-card">
++      <div className="prompt-card__head">
 +        <div>
-+          <div className="__cat">{prompt.category || "Other"}</div>
-+          <h4 className="__pTitle">{prompt.title}</h4>
++          <div className="prompt-card__meta">
++            {prompt.category || "Other"}
++          </div>
++          <h3 className="prompt-card__title">{prompt.title}</h3>
 +        </div>
-+        <div className="__btns">
++        <div className="prompt-card__actions">
 +          <button
-+            className="__btn"
-+            onClick={() => {
-+              const next = fillAcrossDelimiters(body, expanded);
-+              setFilled(next);
-+            }}
++            type="button"
++            className="button"
++            onClick={() => setFilled(fillAcrossDelimiters(prompt.body, expanded))}
 +          >
-+            Insert Listing Details
++            Insert listing details
 +          </button>
 +          <button
-+            className="__btn"
++            type="button"
++            className="button button--ghost"
 +            onClick={async () => {
-+              const ok = await safeCopy(current);
++              const ok = await safeCopy(currentBody);
 +              if (!ok)
-+                alert("Copied text selected. If blocked, use Ctrl/Cmd+C.");
++                alert("Copy blocked. Please select the text and use Cmd/Ctrl + C.");
 +            }}
 +          >
 +            Copy
@@ -787,41 +788,40 @@ index f1674e5c78ed1af33a1857cb6d1686fda2751a82..7113f377be69a39e68989f58b85c6f53
 +      </div>
 +
 +      <div
-+        className="__pBody"
-+        dangerouslySetInnerHTML={{ __html: escapeHtml(current) }}
++        className="prompt-card__body"
++        dangerouslySetInnerHTML={{ __html: escapeHtml(currentBody) }}
 +      />
 +
 +      {!!(prompt.keywords && prompt.keywords.length) && (
-+        <div className="__chipsRow">
-+          {prompt.keywords!.map((k) => (
-+            <span key={k} className="__chipTag">
-+              #{k}
++        <div className="prompt-card__tags">
++          {prompt.keywords!.map((keyword) => (
++            <span key={keyword} className="prompt-card__tag">
++              #{keyword}
 +            </span>
 +          ))}
 +        </div>
 +      )}
-+    </div>
++    </article>
 +  );
 +}
 +
-+// ---------- Main Component ----------
 +export default function App() {
-+  // Normalize prompts from JSON
 +  const prompts: Prompt[] = useMemo(() => {
-+    const arr = (rawPrompts as any[]) || [];
-+    return arr.map((p, i) => ({
-+      id: String(p.id ?? i),
-+      title: p.title ?? `Untitled #${i + 1}`,
-+      category: p.category ?? "Other",
-+      keywords: Array.isArray(p.keywords) ? p.keywords : [],
-+      body: p.body ?? p.text ?? p.prompt ?? "",
++    const list = (rawPrompts as Prompt[]) || [];
++    return list.map((prompt, index) => ({
++      id: String(prompt.id ?? index),
++      title: prompt.title ?? `Untitled #${index + 1}`,
++      category: prompt.category ?? "Other",
++      keywords: Array.isArray(prompt.keywords) ? prompt.keywords : [],
++      body: prompt.body ?? (prompt as any).text ?? (prompt as any).prompt ?? "",
 +    }));
 +  }, []);
 +
-+  // Build keyword universe from JSON
 +  const allKeywords = useMemo(() => {
 +    const set = new Set<string>();
-+    prompts.forEach((p) => (p.keywords || []).forEach((k) => set.add(k)));
++    prompts.forEach((prompt) =>
++      (prompt.keywords || []).forEach((keyword) => set.add(keyword))
++    );
 +    return Array.from(set).sort((a, b) => a.localeCompare(b));
 +  }, [prompts]);
 +
@@ -853,167 +853,171 @@ index f1674e5c78ed1af33a1857cb6d1686fda2751a82..7113f377be69a39e68989f58b85c6f53
 +    "lead source": "",
 +  });
 +
-+  const filtered = useMemo(() => {
-+    const q = search.trim().toLowerCase();
-+    return prompts.filter((p) => {
++  const labels: string[] = [
++    "property type",
++    "address",
++    "city",
++    "neighborhood",
++    "bedrooms",
++    "bathrooms",
++    "sqft",
++    "price",
++    "hoa fee",
++    "year built",
++    "lot size",
++    "school district",
++    "key features",
++    "neighborhood characteristics",
++    "lifestyle benefits",
++    "word count",
++    "date",
++    "start time",
++    "end time",
++    "lead source",
++  ];
++
++  const filteredPrompts = useMemo(() => {
++    const query = search.trim().toLowerCase();
++    return prompts.filter((prompt) => {
 +      if (selectedKeywords.size > 0) {
-+        const hasAny = (p.keywords || []).some((k) => selectedKeywords.has(k));
-+        if (!hasAny) return false;
++        const hasKeyword = (prompt.keywords || []).some((keyword) =>
++          selectedKeywords.has(keyword)
++        );
++        if (!hasKeyword) return false;
 +      }
-+      if (!q) return true;
-+      const hay = (p.title + "\n" + p.body + "\n" + (p.keywords || []).join(" ")).toLowerCase();
-+      return hay.includes(q);
++
++      if (!query) return true;
++      const haystack = (
++        prompt.title +
++        "\n" +
++        prompt.body +
++        "\n" +
++        (prompt.keywords || []).join(" ")
++      ).toLowerCase();
++      return haystack.includes(query);
 +    });
 +  }, [prompts, search, selectedKeywords]);
 +
-+  const labels: string[] = [
-+    "property type","address","city","neighborhood","bedrooms","bathrooms","sqft","price",
-+    "hoa fee","year built","lot size","school district","key features",
-+    "neighborhood characteristics","lifestyle benefits","word count","date","start time","end time","lead source",
-+  ];
-+
-+  function toggleKeyword(k: string) {
-+    setSelectedKeywords((prev) => {
-+      const next = new Set(prev);
-+      if (next.has(k)) next.delete(k);
-+      else next.add(k);
++  const toggleKeyword = (keyword: string) => {
++    setSelectedKeywords((previous) => {
++      const next = new Set(previous);
++      if (next.has(keyword)) next.delete(keyword);
++      else next.add(keyword);
 +      return next;
 +    });
-+  }
++  };
++
++  const clearKeywordFilters = () => setSelectedKeywords(new Set());
++
++  const clearInputs = () => {
++    setVars((current) => {
++      const cleared: Record<string, string> = {};
++      Object.keys(current).forEach((key) => {
++        cleared[key] = "";
++      });
++      return cleared;
++    });
++  };
 +
 +  return (
-+    <div className="__brts__root">
-+      {/* Scoped styles */}
-+      <style>{`
-+        .__brts__root{max-width:1200px;margin:0 auto;padding:16px;color:#fff}
++    <div className="app-shell">
++      <div className="app-top">
++        <aside className="card">
++          <div className="card__header">
++            <h2 className="card__title">Listing details</h2>
++            <span className="card__badge">Inputs</span>
++          </div>
 +
-+        .__row{display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start}
-+        @media (max-width:980px){.__row{grid-template-columns:1fr}}
-+
-+        .__card{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);backdrop-filter:blur(8px);border-radius:16px;padding:16px}
-+        .__card h3{margin:.25rem 0 .5rem 0}
-+
-+        .__inputs{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-+        .__inputs label{font-size:12px;opacity:.75}
-+        .__inputs input{
-+          width:100%;margin-top:4px;border-radius:10px;border:1px solid rgba(255,255,255,.18);
-+          background:#0b0f17;color:#fff;padding:8px 10px;outline:none
-+        }
-+
-+        .__muted{opacity:.7;font-size:12px}
-+        .__search input{
-+          width:100%;margin-top:6px;border-radius:10px;border:1px solid rgba(255,255,255,.18);
-+          background:#0b0f17;color:#fff;padding:8px 10px;outline:none
-+        }
-+
-+        .__chipsWrap{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px}
-+        .__chip{
-+          padding:6px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.18);
-+          background:rgba(255,255,255,.08);font-size:12px;color:#fff;cursor:pointer
-+        }
-+        .__chip--active{background:#fff;color:#000;border-color:#fff}
-+
-+        .__grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-+        @media (max-width:1200px){.__grid{grid-template-columns:repeat(2,1fr)}}
-+        @media (max-width:700px){.__grid{grid-template-columns:1fr}}
-+
-+        .__pCard{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);border-radius:16px;padding:16px}
-+        .__pHead{display:flex;justify-content:space-between;gap:8px}
-+        .__cat{font-size:11px;text-transform:uppercase;opacity:.7}
-+        .__pTitle{margin:6px 0 0 0}
-+        .__btns{display:flex;gap:8px;flex-wrap:wrap}
-+        .__btn{padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.22);background:#fff;color:#000;font-weight:700;cursor:pointer}
-+        .__chipsRow{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-+        .__chipTag{padding:4px 8px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.10);font-size:11px}
-+        .__pBody{margin-top:10px;white-space:pre-wrap}
-+      `}</style>
-+
-+      {/* Top row: Listing details + Search */}
-+      <div className="__row">
-+        {/* Listing Details (no Apply info here) */}
-+        <aside className="__card">
-+          <h3>Listing Details</h3>
-+          <div className="__inputs">
++          <div className="inputs-grid">
 +            {labels.map((label) => {
-+              const id = "f_" + label.replace(/\s+/g, "_");
++              const id = `field-${label.replace(/\s+/g, "-")}`;
 +              return (
-+                <div key={label} style={{ display: "flex", flexDirection: "column" }}>
-+                  <label htmlFor={id}>[{label}]</label>
++                <label key={label} className="field" htmlFor={id}>
++                  <span className="field__label">[{label}]</span>
 +                  <input
 +                    id={id}
 +                    value={vars[label] ?? ""}
-+                    onChange={(e) => setVars((v) => ({ ...v, [label]: e.target.value }))}
++                    onChange={(event) =>
++                      setVars((previous) => ({
++                        ...previous,
++                        [label]: event.target.value,
++                      }))
++                    }
 +                  />
-+                </div>
++                </label>
 +              );
 +            })}
 +          </div>
-+          <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
-+            <button
-+              className="__btn"
-+              onClick={() => setVars((v) => Object.fromEntries(Object.keys(v).map((k) => [k, ""])) as any)}
-+            >
++
++          <div className="actions">
++            <button type="button" className="button" onClick={clearInputs}>
 +              Clear
 +            </button>
 +          </div>
 +        </aside>
 +
-+        {/* Search + Keywords */}
-+        <section>
-+          <div className="__card __search">
-+            <label>Search</label>
++        <div className="col-right">
++          <section className="card search-card">
++            <label htmlFor="search">Search</label>
 +            <input
++              id="search"
 +              value={search}
-+              onChange={(e) => setSearch(e.target.value)}
++              onChange={(event) => setSearch(event.target.value)}
 +              placeholder="Search titles, bodies, keywords…"
 +            />
-+            <div className="__muted" style={{ marginTop: 6 }}>
-+              Showing: {filtered.length} / {prompts.length}
-+            </div>
-+          </div>
++            <p className="muted">
++              Showing {filteredPrompts.length} of {prompts.length}
++            </p>
++          </section>
 +
-+          <div className="__card" style={{ marginTop: 12 }}>
-+            <h3>Keywords</h3>
-+            <div className="__chipsWrap">
-+              {allKeywords.map((k) => (
++          <section className="card keywords-card">
++            <div className="card__header" style={{ marginBottom: 0 }}>
++              <h2 className="card__title">Keywords</h2>
++            </div>
++            <div className="chip-grid">
++              {allKeywords.map((keyword) => (
 +                <Chip
-+                  key={k}
-+                  label={k}
-+                  active={selectedKeywords.has(k)}
-+                  onClick={() => toggleKeyword(k)}
++                  key={keyword}
++                  label={keyword}
++                  active={selectedKeywords.has(keyword)}
++                  onClick={() => toggleKeyword(keyword)}
 +                />
 +              ))}
 +            </div>
 +            {selectedKeywords.size > 0 && (
-+              <div className="__muted" style={{ marginTop: 8 }}>
++              <div className="keyword-summary">
 +                Active: {Array.from(selectedKeywords).join(", ")} —{" "}
-+                <a
-+                  href="#"
-+                  onClick={(e) => {
-+                    e.preventDefault();
-+                    setSelectedKeywords(new Set());
-+                  }}
-+                  style={{ color: "#fff" }}
++                <button
++                  type="button"
++                  className="link-button"
++                  onClick={clearKeywordFilters}
 +                >
 +                  Clear
-+                </a>
++                </button>
 +              </div>
 +            )}
-+          </div>
-+        </section>
++          </section>
++        </div>
 +      </div>
 +
-+      {/* Prompt grid */}
-+      <section style={{ marginTop: 16 }}>
-+        <div className="__grid">
-+          {filtered.map((p) => (
-+            <PromptCard key={p.id} prompt={p} vars={vars} />
-+          ))}
-+        </div>
++      <section className="grid-section">
++        {filteredPrompts.length > 0 ? (
++          <div className="grid">
++            {filteredPrompts.map((prompt) => (
++              <PromptCard key={prompt.id} prompt={prompt} vars={vars} />
++            ))}
++          </div>
++        ) : (
++          <div className="empty-state">
++            No prompts match your filters yet. Try adjusting the search or
++            keyword chips.
++          </div>
++        )}
 +      </section>
 +
-+      <footer style={{ padding: "24px 0", opacity: 0.7, fontSize: 12 }}>
-+        © {new Date().getFullYear()} Busy Realtors Time Saviour — React build
++      <footer className="footer">
++        © {new Date().getFullYear()} Busy Realtors Time Saviour — Prompt finder
++        toolkit
 +      </footer>
 +    </div>
 +  );
