@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import rawPrompts from "./data/prompts.json";
 import "./index.css";
 
@@ -8,6 +8,54 @@ type Prompt = {
   category?: string;
   keywords?: string[];
   body: string;
+};
+
+const LISTING_FIELDS = [
+  "property type",
+  "address",
+  "city",
+  "neighborhood",
+  "bedrooms",
+  "bathrooms",
+  "sqft",
+  "price",
+  "hoa fee",
+  "year built",
+  "lot size",
+  "school district",
+  "key features",
+  "neighborhood characteristics",
+  "lifestyle benefits",
+  "word count",
+  "date",
+  "start time",
+  "end time",
+  "lead source",
+] as const;
+
+type ListingField = (typeof LISTING_FIELDS)[number];
+
+const DEFAULT_VARS: Record<ListingField, string> = {
+  "property type": "",
+  address: "",
+  city: "Miami",
+  neighborhood: "",
+  bedrooms: "3",
+  bathrooms: "2",
+  sqft: "",
+  price: "",
+  "hoa fee": "",
+  "year built": "",
+  "lot size": "",
+  "school district": "",
+  "key features": "ocean views, smart-home, chef’s kitchen",
+  "neighborhood characteristics": "",
+  "lifestyle benefits": "",
+  "word count": "170",
+  date: "",
+  "start time": "",
+  "end time": "",
+  "lead source": "",
 };
 
 type KeywordGroup = {
@@ -168,6 +216,10 @@ function PromptCard({ prompt, vars }: PromptCardProps) {
   const expanded = useMemo(() => buildExpandedVars(vars), [vars]);
   const currentBody = filled ?? prompt.body;
 
+  useEffect(() => {
+    setFilled(null);
+  }, [prompt.body, vars]);
+
   return (
     <article className="prompt-card">
       <div className="prompt-card__head">
@@ -276,51 +328,9 @@ export default function App() {
   const summaryKeywords =
     activeKeywords.length > 0 ? activeKeywords : selectedKeywordsList;
 
-  const [vars, setVars] = useState<Record<string, string>>({
-    "property type": "",
-    address: "",
-    city: "Miami",
-    neighborhood: "",
-    bedrooms: "3",
-    bathrooms: "2",
-    sqft: "",
-    price: "",
-    "hoa fee": "",
-    "year built": "",
-    "lot size": "",
-    "school district": "",
-    "key features": "ocean views, smart-home, chef’s kitchen",
-    "neighborhood characteristics": "",
-    "lifestyle benefits": "",
-    "word count": "170",
-    date: "",
-    "start time": "",
-    "end time": "",
-    "lead source": "",
+  const [vars, setVars] = useState<Record<ListingField, string>>({
+    ...DEFAULT_VARS,
   });
-
-  const labels: string[] = [
-    "property type",
-    "address",
-    "city",
-    "neighborhood",
-    "bedrooms",
-    "bathrooms",
-    "sqft",
-    "price",
-    "hoa fee",
-    "year built",
-    "lot size",
-    "school district",
-    "key features",
-    "neighborhood characteristics",
-    "lifestyle benefits",
-    "word count",
-    "date",
-    "start time",
-    "end time",
-    "lead source",
-  ];
 
   const filteredPrompts = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -356,13 +366,7 @@ export default function App() {
   const clearKeywordFilters = () => setSelectedKeywords(new Set());
 
   const clearInputs = () => {
-    setVars((current) => {
-      const cleared: Record<string, string> = {};
-      Object.keys(current).forEach((key) => {
-        cleared[key] = "";
-      });
-      return cleared;
-    });
+    setVars({ ...DEFAULT_VARS });
   };
 
   return (
@@ -370,7 +374,7 @@ export default function App() {
       <div className="app-top">
         <aside className="card">
           <div className="inputs-grid">
-            {labels.map((label) => {
+            {LISTING_FIELDS.map((label) => {
               const id = `field-${label.replace(/\s+/g, "-")}`;
               return (
                 <label key={label} className="field" htmlFor={id}>
